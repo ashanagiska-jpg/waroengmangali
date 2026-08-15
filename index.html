@@ -68,6 +68,7 @@
               <div class="card-head" style="gap:10px">
                 <div class="search-box" style="flex:1"><i data-lucide="search" class="icon" style="width:15px;height:15px"></i><input type="text" id="posSearch" oninput="renderPosProducts()" placeholder="Cari / scan barcode..." class="input" autocomplete="off" enterkeyhint="done"></div>
                 <button type="button" onclick="openScanner(handlePosScan)" class="btn btn-primary btn-sm" title="Kamera"><i data-lucide="camera" style="width:15px;height:15px"></i></button>
+                <button type="button" onclick="openManualItemModal()" class="btn btn-ghost btn-sm" title="Sayuran / item manual" style="border-color:#86efac;color:var(--primary-dark)"><i data-lucide="leaf" style="width:15px;height:15px"></i> Sayur</button>
                 <input type="text" id="hwScanInput" inputmode="none" autocomplete="off" aria-hidden="true" style="position:absolute;opacity:0;width:1px;height:1px;pointer-events:none" tabindex="-1">
               </div>
               <div class="card-pad card-body" style="padding-top:10px"><div class="chip-row hide-scrollbar" id="categoryFilters"></div><div class="product-grid" id="posProductGrid"></div></div>
@@ -257,6 +258,7 @@
     </div>
     <div class="card-pad cart-list" id="cartItemsList" style="padding-top:8px"><div class="empty">Keranjang kosong</div></div>
     <div class="cart-footer space-y-3">
+      <button type="button" onclick="openManualItemModal()" class="btn btn-ghost btn-block btn-sm" style="margin-bottom:8px;border-style:dashed"><i data-lucide="leaf" style="width:14px;height:14px"></i> + Sayuran / Item Manual</button>
       <div class="total-line"><span class="lbl">Total Belanja</span><span class="val" id="cartTotalText">Rp 0</span></div>
       <div><label class="label">Metode Pembayaran</label><select id="posPaymentMethod" onchange="toggleKasbonInput()" class="select"><option value="Tunai">Tunai</option><option value="QRIS/Transfer">QRIS / Transfer</option><option value="Kasbon">Kasbon (Hutang)</option></select></div>
       <div id="kasbonFormGroup" class="hidden"><label class="label">Nama Pelanggan</label><input type="text" id="kasbonCustomerName" placeholder="Pak RT" class="input"></div>
@@ -287,6 +289,26 @@
     <button onclick="switchTab('laporan')" id="navm-laporan"><i data-lucide="bar-chart-3" style="width:18px;height:18px"></i><span>Lapor</span></button>
   </nav>
 
+  
+  <div id="qtyModal" class="modal-bg hidden">
+    <div class="modal modal-sm">
+      <div class="modal-head"><h3 id="qtyModalTitle">Jumlah</h3><button type="button" onclick="closeQtyModal()" class="modal-x"><i data-lucide="x" style="width:16px;height:16px"></i></button></div>
+      <p class="text-muted" style="font-size:12px;font-weight:600;margin-bottom:10px" id="qtyModalHint">Masukkan jumlah</p>
+      <div class="form-group">
+        <label class="label" id="qtyModalLabel">Qty</label>
+        <input type="number" id="qtyModalInput" class="cash-input" min="0" step="any" placeholder="0" oninput="previewQtyTotal()">
+      </div>
+      <div class="fuel-quick" id="qtyQuickBtns"></div>
+      <div class="fuel-preview" style="margin-top:12px">
+        <div class="fuel-preview-row"><span>Total</span><strong id="qtyModalTotal">Rp 0</strong></div>
+      </div>
+      <div class="form-actions" style="margin-top:14px">
+        <button type="button" onclick="closeQtyModal()" class="btn btn-ghost">Batal</button>
+        <button type="button" onclick="confirmQtyToCart()" class="btn btn-primary">Tambah</button>
+      </div>
+    </div>
+  </div>
+
   <div id="productModal" class="modal-bg hidden">
     <div class="modal">
       <div class="modal-head"><h3 id="productModalTitle">Tambah Barang Baru</h3><button onclick="closeProductModal()" class="modal-x"><i data-lucide="x" style="width:16px;height:16px"></i></button></div>
@@ -305,8 +327,10 @@
         </div>
         <div class="form-group"><label class="label">Nama Barang</label><input type="text" id="prodName" required class="input" placeholder="Minyak Goreng 1L"></div>
         <div class="form-group"><label class="label">Barcode</label><div class="flex gap-2"><input type="text" id="prodBarcode" class="input" style="flex:1" placeholder="Scan / ketik"><button type="button" onclick="openScanner(handleProductScan)" class="btn btn-ghost" style="padding:10px 12px"><i data-lucide="scan-line" style="width:15px;height:15px"></i></button></div></div>
-        <div class="form-row"><div class="form-group"><label class="label">Kategori</label><select id="prodCategory" class="select"><option value="Sembako">Sembako</option><option value="Minuman">Minuman</option><option value="Makanan Ringan">Makanan Ringan</option><option value="Bumbu Dapur">Bumbu Dapur</option><option value="Perlengkapan">Perlengkapan</option></select></div><div class="form-group"><label class="label">Stok</label><input type="number" id="prodStock" required min="0" class="input" placeholder="0"></div></div>
-        <div class="form-row"><div class="form-group"><label class="label">Harga Beli</label><input type="number" id="prodCost" required min="0" class="input" placeholder="0"></div><div class="form-group"><label class="label">Harga Jual</label><input type="number" id="prodPrice" required min="0" class="input" placeholder="0"></div></div>
+        <div class="form-row"><div class="form-group"><label class="label">Kategori</label><select id="prodCategory" class="select" onchange="onProdCategoryChange()"><option value="Sembako">Sembako</option><option value="Sayuran">Sayuran</option><option value="Minuman">Minuman</option><option value="Makanan Ringan">Makanan Ringan</option><option value="Bumbu Dapur">Bumbu Dapur</option><option value="Perlengkapan">Perlengkapan</option></select></div><div class="form-group"><label class="label">Satuan jual</label><select id="prodUnit" class="select"><option value="pcs">Pcs / buah</option><option value="kg">Kg</option><option value="ons">Ons (100g)</option><option value="gram">Gram</option><option value="ikat">Ikat</option><option value="pack">Pack</option><option value="liter">Liter</option></select></div></div>
+        <div class="form-row"><div class="form-group"><label class="label">Stok <span id="prodStockUnitHint" class="text-muted" style="font-weight:600;text-transform:none;letter-spacing:0">(pcs)</span></label><input type="number" id="prodStock" required min="0" step="any" class="input" placeholder="0"></div><div class="form-group"><label class="label">Stok longgar</label><select id="prodLooseStock" class="select"><option value="0">Tidak (ketat)</option><option value="1">Ya (sayuran/pasar)</option></select></div></div>
+        <p class="text-muted" style="font-size:11px;margin:-4px 0 12px;font-weight:600">Stok longgar: boleh jual meski stok 0 / kurang (cocok sayuran). Harga = per satuan di atas.</p>
+        <div class="form-row"><div class="form-group"><label class="label">Harga Beli / satuan</label><input type="number" id="prodCost" required min="0" class="input" placeholder="0"></div><div class="form-group"><label class="label">Harga Jual / satuan</label><input type="number" id="prodPrice" required min="0" class="input" placeholder="0"></div></div>
         <div class="form-actions"><button type="button" onclick="closeProductModal()" class="btn btn-ghost">Batal</button><button type="submit" class="btn btn-primary">Simpan Barang</button></div>
       </form>
     </div>
@@ -315,6 +339,56 @@
   <div id="restockModal" class="modal-bg hidden"><div class="modal modal-sm"><div class="modal-head"><h3>Tambah Stok</h3><button onclick="closeRestockModal()" class="modal-x"><i data-lucide="x" style="width:16px;height:16px"></i></button></div><form onsubmit="saveRestock(event)"><input type="hidden" id="restockId"><p style="font-size:14px;margin-bottom:4px"><strong id="restockName">-</strong></p><p class="text-muted" style="font-size:12px;margin-bottom:14px;font-weight:600">Stok saat ini: <span id="restockCurrent">0</span></p><div class="form-group"><label class="label">Jumlah Masuk</label><input type="number" id="restockQty" required min="1" class="input" placeholder="0"></div><div class="form-actions"><button type="button" onclick="closeRestockModal()" class="btn btn-ghost">Batal</button><button type="submit" class="btn btn-primary">Tambah Stok</button></div></form></div></div>
   <div id="expenseModal" class="modal-bg hidden"><div class="modal"><div class="modal-head"><h3>Catat Pengeluaran</h3><button onclick="closeExpenseModal()" class="modal-x"><i data-lucide="x" style="width:16px;height:16px"></i></button></div><form id="expenseForm" onsubmit="saveExpense(event)"><div class="form-group"><label class="label">Kategori</label><select id="expCategory" class="select"><option value="Operasional (Listrik/Air)">Operasional (Listrik/Air)</option><option value="Beli Kantong Plastik/Peralatan">Beli Kantong Plastik/Peralatan</option><option value="Transportasi Kulakan">Transportasi Kulakan</option><option value="Lain-lain">Lain-lain</option></select></div><div class="form-group"><label class="label">Keterangan</label><input type="text" id="expDesc" required class="input"></div><div class="form-group"><label class="label">Nominal (Rp)</label><input type="number" id="expAmount" required min="0" class="input"></div><div class="form-actions"><button type="button" onclick="closeExpenseModal()" class="btn btn-ghost">Batal</button><button type="submit" class="btn btn-primary">Simpan</button></div></form></div></div>
   <div id="kasbonModal" class="modal-bg hidden"><div class="modal modal-sm"><div class="modal-head"><h3>Tambah Kasbon</h3><button onclick="closeKasbonModal()" class="modal-x"><i data-lucide="x" style="width:16px;height:16px"></i></button></div><form id="kasbonForm" onsubmit="saveKasbonManual(event)"><div class="form-group"><label class="label">Nama Pelanggan</label><input type="text" id="kasbonModalCustomer" required class="input"></div><div class="form-group"><label class="label">Total Hutang (Rp)</label><input type="number" id="kasbonModalTotal" required min="0" class="input"></div><div class="form-group"><label class="label">Keterangan</label><input type="text" id="kasbonModalNote" class="input" placeholder="Opsional"></div><div class="form-actions"><button type="button" onclick="closeKasbonModal()" class="btn btn-ghost">Batal</button><button type="submit" class="btn btn-primary">Simpan</button></div></form></div></div>
+  
+  <div id="manualItemModal" class="modal-bg hidden">
+    <div class="modal modal-sm">
+      <div class="modal-head">
+        <h3 style="display:flex;align-items:center;gap:8px"><i data-lucide="leaf" style="width:18px;height:18px;color:var(--primary)"></i> Sayuran / Item Manual</h3>
+        <button type="button" onclick="closeManualItemModal()" class="modal-x"><i data-lucide="x" style="width:16px;height:16px"></i></button>
+      </div>
+      <p class="text-muted" style="font-size:12px;font-weight:600;margin-bottom:14px">Tanpa stok. Isi nama &amp; harga jual saja (mis. Kangkung Rp 5.000).</p>
+      <form onsubmit="submitManualItem(event)">
+        <div class="form-group">
+          <label class="label">Nama barang</label>
+          <input type="text" id="manualItemName" class="input" required placeholder="Contoh: Bayam, Kangkung, Cabe..." list="manualVegSuggestions" autocomplete="off">
+          <datalist id="manualVegSuggestions">
+            <option value="Bayam"></option>
+            <option value="Kangkung"></option>
+            <option value="Sawi"></option>
+            <option value="Kacang panjang"></option>
+            <option value="Cabe rawit"></option>
+            <option value="Cabe merah"></option>
+            <option value="Tomat"></option>
+            <option value="Bawang merah"></option>
+            <option value="Bawang putih"></option>
+            <option value="Wortel"></option>
+            <option value="Kentang"></option>
+            <option value="Kol"></option>
+          </datalist>
+        </div>
+        <div class="form-group">
+          <label class="label">Harga jual (Rp)</label>
+          <input type="number" id="manualItemPrice" class="input" required min="1" step="100" placeholder="5000">
+        </div>
+        <div class="form-group">
+          <label class="label">Jumlah (opsional)</label>
+          <input type="number" id="manualItemQty" class="input" min="0.01" step="0.1" value="1" placeholder="1">
+        </div>
+        <div class="fuel-quick" style="margin-bottom:12px">
+          <button type="button" class="fuel-chip" onclick="document.getElementById('manualItemPrice').value=2000">2rb</button>
+          <button type="button" class="fuel-chip" onclick="document.getElementById('manualItemPrice').value=3000">3rb</button>
+          <button type="button" class="fuel-chip" onclick="document.getElementById('manualItemPrice').value=5000">5rb</button>
+          <button type="button" class="fuel-chip" onclick="document.getElementById('manualItemPrice').value=10000">10rb</button>
+          <button type="button" class="fuel-chip" onclick="document.getElementById('manualItemPrice').value=15000">15rb</button>
+        </div>
+        <div class="form-actions">
+          <button type="button" onclick="closeManualItemModal()" class="btn btn-ghost">Batal</button>
+          <button type="submit" class="btn btn-primary">Masuk Keranjang</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div id="scannerModal" class="modal-bg hidden"><div class="modal"><div class="modal-head"><h3 style="font-size:14px;display:flex;align-items:center;gap:8px"><i data-lucide="scan-line" style="width:16px;height:16px;color:var(--primary)"></i> Scan Barcode</h3><button onclick="closeScanner()" class="modal-x"><i data-lucide="x" style="width:16px;height:16px"></i></button></div><div id="scannerRegion"></div><div style="display:flex;justify-content:center;margin-top:12px"><button type="button" id="scannerTorchBtn" onclick="toggleScannerTorch()" class="btn btn-ghost btn-sm">Senter: Mati</button></div><p class="text-muted" style="font-size:11px;text-align:center;margin-top:10px;font-weight:600">Dekatkan barcode, tahan stabil 1–2 detik. Scanner USB/Bluetooth juga otomatis aktif di kasir.</p></div></div>
   <div id="doaModal" class="modal-bg hidden"><div class="modal"><p dir="rtl" lang="ar" class="doa-ar">اَللَّهُمَّ اكْفِنِيْ بِحَلَالِكَ عَنْ حَرَامِكَ وَأَغْنِنِيْ بِفَضْلِكَ عَمَّنْ سِوَاكَ</p><p class="doa-lat">Allahumma ikfini bihalalika 'an haramika, wa aghnini bifadhlika 'amman siwaka.</p><button onclick="closeDoaModal()" class="btn btn-primary btn-block">Aamiin</button></div></div>
   <div id="receiptModal" class="modal-bg hidden"><div class="modal modal-sm" style="text-align:center"><div class="receipt-ok"><i data-lucide="check" style="width:24px;height:24px"></i></div><h3 style="font-size:16px;font-weight:800">Transaksi Berhasil!</h3><div id="receiptDetails" class="receipt-box"></div><div class="flex gap-2" style="margin-top:4px"><button onclick="printReceipt()" class="btn btn-ghost" style="flex:1"><i data-lucide="printer" style="width:15px;height:15px"></i> Cetak</button><button onclick="closeReceiptModal()" class="btn btn-primary" style="flex:1">Selesai</button></div></div></div>
