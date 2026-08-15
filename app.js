@@ -4,7 +4,7 @@ let activeCategory='Semua', reportFilter='all', currentPage='dashboard';
 let html5QrCode=null, scanCallback=null, scannerTorchOn=false, lastReceiptData=null;
 
 /** GANTI URL INI setelah Deploy Web App baru di Apps Script */
-const WEB_APP_URL='https://script.google.com/macros/s/AKfycbzFM8WMnbnfKZcCHMNSRgn5LnSmf_loB8Raq-Ohw6P4bhkMr3-YMWsLowFJV7Ky8Bo3fg/exec';
+const WEB_APP_URL='https://script.google.com/macros/s/AKfycbxVpG2wzDOuvKFY-j7vGvFF2ybeWsWpBEglrR9J9ec6cNpqHDyavZPRVM-VWWoY3OpPJg/exec';
 
 const PAGE_TITLES={dashboard:'Dashboard',pos:'Kasir (POS)',stok:'Stok Barang',kasbon:'Catatan Kasbon',pengeluaran:'Pengeluaran',laporan:'Laporan Keuangan'};
 const PLACEHOLDER_IMG='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect fill="#e8f6ee" width="120" height="120"/><text x="60" y="68" text-anchor="middle" font-size="40">🛒</text></svg>');
