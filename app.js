@@ -4,7 +4,7 @@ let activeCategory='Semua', reportFilter='all', currentPage='dashboard';
 let html5QrCode=null, scanCallback=null, scannerTorchOn=false, lastReceiptData=null;
 
 /** GANTI URL INI setelah Deploy Web App baru di Apps Script */
-const WEB_APP_URL='https://script.google.com/macros/s/AKfycbxVpG2wzDOuvKFY-j7vGvFF2ybeWsWpBEglrR9J9ec6cNpqHDyavZPRVM-VWWoY3OpPJg/exec';
+const WEB_APP_URL='https://script.google.com/macros/s/AKfycbzFM8WMnbnfKZcCHMNSRgn5LnSmf_loB8Raq-Ohw6P4bhkMr3-YMWsLowFJV7Ky8Bo3fg/exec';
 
 const PAGE_TITLES={dashboard:'Dashboard',pos:'Kasir (POS)',stok:'Stok Barang',kasbon:'Catatan Kasbon',pengeluaran:'Pengeluaran',laporan:'Laporan Keuangan'};
 const PLACEHOLDER_IMG='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect fill="#e8f6ee" width="120" height="120"/><text x="60" y="68" text-anchor="middle" font-size="40">🛒</text></svg>');
@@ -13,7 +13,9 @@ window.onload=async function(){
   lucide.createIcons();
   if(window.self!==window.top){const b=document.getElementById('embedBanner');b.classList.remove('hidden');b.style.display='flex';}
   openDoaModal(); startLiveClock();
-  await loadAllData(); switchTab('dashboard');
+  await loadAllData();
+  renderCurrentPage();
+  switchTab('dashboard');
 };
 
 async function apiGet(action){
@@ -92,9 +94,15 @@ function switchTab(tabId){
   const nav=document.getElementById('nav-'+tabId); if(nav) nav.classList.add('active');
   const navm=document.getElementById('navm-'+tabId); if(navm) navm.classList.add('active');
   const titleEl=document.getElementById('pageTitle'); if(titleEl) titleEl.textContent=PAGE_TITLES[tabId]||tabId;
-  window.scrollTo({top:0,behavior:'instant'}); lucide.createIcons();
+  window.scrollTo({top:0,behavior:'instant'});
+  // Render konten sesuai tab agar tidak kosong saat dibuka
   if(tabId==='dashboard') renderDashboard();
-  if(tabId==='laporan') updateFinancialReports();
+  else if(tabId==='pos'){ renderCategoryFilters(); renderPosProducts(); renderCart(); }
+  else if(tabId==='stok') renderStockTable();
+  else if(tabId==='kasbon') renderKasbonTable();
+  else if(tabId==='pengeluaran') renderExpenseTable();
+  else if(tabId==='laporan') updateFinancialReports();
+  lucide.createIcons();
 }
 function startLiveClock(){
   setInterval(()=>{
@@ -108,28 +116,185 @@ function closeDoaModal(){document.getElementById('doaModal').classList.add('hidd
 function openInNewTab(){window.open(WEB_APP_URL,'_blank');}
 
 /* ===== SCANNER ===== */
-function openScanner(callback){
-  if(window.self!==window.top){if(confirm('Scan tidak bisa di Google Sites. Buka tab baru?')) openInNewTab(); return;}
-  scanCallback=callback; scannerTorchOn=false;
+let scannerStarting=false;
+
+async function stopScannerFully(){
+  scannerTorchOn=false;
+  const inst=html5QrCode;
+  html5QrCode=null;
+  if(!inst) return;
+  try{
+    // getState: 1=NOT_STARTED, 2=SCANNING, 3=PAUSED — stop only if scanning
+    if(typeof inst.getState==='function'){
+      const st=inst.getState();
+      if(st===2 || st===3) await inst.stop();
+    } else {
+      try{ await inst.stop(); }catch(e){}
+    }
+  }catch(e){}
+  try{ inst.clear(); }catch(e){}
+  // kosongkan elemen agar instance baru bersih
+  const region=document.getElementById('scannerRegion');
+  if(region) region.innerHTML='';
+}
+
+async function openScanner(callback){
+  if(window.self!==window.top){
+    if(confirm('Scan tidak bisa di Google Sites. Buka tab baru?')) openInNewTab();
+    return;
+  }
+  if(scannerStarting) return;
+  scannerStarting=true;
+  scanCallback=callback;
+  scannerTorchOn=false;
+
+  // Pastikan scanner lama benar-benar mati dulu (hindari "already under transition")
+  await stopScannerFully();
+
   document.getElementById('scannerModal').classList.remove('hidden');
-  const torchBtn=document.getElementById('scannerTorchBtn'); if(torchBtn) torchBtn.textContent='Senter: Mati';
+  const torchBtn=document.getElementById('scannerTorchBtn');
+  if(torchBtn) torchBtn.textContent='Senter: Mati';
   lucide.createIcons();
-  const config={fps:15,qrbox:function(vw,vh){const w=Math.floor(vw*.88);const h=Math.floor(Math.min(vh*.35,w*.45));return{width:Math.max(200,w),height:Math.max(80,h)};},aspectRatio:1.777,experimentalFeatures:{useBarCodeDetectorIfSupported:true}};
-  html5QrCode=new Html5Qrcode('scannerRegion',{formatsToSupport:[Html5QrcodeSupportedFormats.EAN_13,Html5QrcodeSupportedFormats.EAN_8,Html5QrcodeSupportedFormats.UPC_A,Html5QrcodeSupportedFormats.UPC_E,Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.CODE_39,Html5QrcodeSupportedFormats.CODABAR,Html5QrcodeSupportedFormats.ITF,Html5QrcodeSupportedFormats.QR_CODE],verbose:false});
-  const constraints={facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080},advanced:[{focusMode:'continuous'},{focusMode:'auto'}]};
-  html5QrCode.start(constraints,config,t=>onScanSuccess(t),()=>{})
-    .catch(async()=>{try{await html5QrCode.start({facingMode:'environment'},config,t=>onScanSuccess(t),()=>{});tryApplyFocusContinuous();}catch(e){alert('Tidak bisa akses kamera.\n'+e);closeScanner();}})
-    .then(()=>tryApplyFocusContinuous());
+
+  const config={
+    fps:10,
+    qrbox:function(vw,vh){
+      const w=Math.floor(vw*0.88);
+      const h=Math.floor(Math.min(vh*0.35,w*0.45));
+      return{width:Math.max(200,w),height:Math.max(80,h)};
+    },
+    aspectRatio:1.777,
+    experimentalFeatures:{useBarCodeDetectorIfSupported:true}
+  };
+
+  try{
+    html5QrCode=new Html5Qrcode('scannerRegion',{
+      formatsToSupport:[
+        Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.UPC_E,
+        Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.CODABAR, Html5QrcodeSupportedFormats.ITF,
+        Html5QrcodeSupportedFormats.QR_CODE
+      ],
+      verbose:false
+    });
+
+    // Mulai dengan constraint sederhana dulu (lebih stabil di Android/Brave)
+    try{
+      await html5QrCode.start(
+        { facingMode: 'environment' },
+        config,
+        function(t){ onScanSuccess(t); },
+        function(){}
+      );
+    }catch(e1){
+      // fallback kamera depan / default
+      await html5QrCode.start(
+        { facingMode: 'user' },
+        config,
+        function(t){ onScanSuccess(t); },
+        function(){}
+      );
+    }
+    tryApplyFocusContinuous();
+  }catch(e){
+    alert('Tidak bisa akses kamera.\n\nPastikan:\n• Izin kamera di browser diizinkan\n• Buka lewat HTTPS (bukan HTTP)\n• Tutup app lain yang memakai kamera\n\nDetail: '+e);
+    closeScanner();
+  }finally{
+    scannerStarting=false;
+  }
 }
+
 function tryApplyFocusContinuous(){
-  try{const video=document.querySelector('#scannerRegion video');if(!video||!video.srcObject)return;const track=video.srcObject.getVideoTracks()[0];if(!track||!track.getCapabilities)return;const caps=track.getCapabilities();const c={};if(caps.focusMode&&caps.focusMode.includes('continuous'))c.focusMode='continuous';else if(caps.focusMode&&caps.focusMode.includes('auto'))c.focusMode='auto';if(caps.zoom)c.zoom=Math.min((caps.zoom.min||1)+.5,caps.zoom.max||2);if(Object.keys(c).length)track.applyConstraints({advanced:[c]}).catch(()=>{});}catch(e){}
+  try{
+    const video=document.querySelector('#scannerRegion video');
+    if(!video||!video.srcObject) return;
+    const track=video.srcObject.getVideoTracks()[0];
+    if(!track||!track.getCapabilities) return;
+    const caps=track.getCapabilities();
+    const c={};
+    if(caps.focusMode&&caps.focusMode.includes('continuous')) c.focusMode='continuous';
+    else if(caps.focusMode&&caps.focusMode.includes('auto')) c.focusMode='auto';
+    if(caps.zoom) c.zoom=Math.min((caps.zoom.min||1)+0.5, caps.zoom.max||2);
+    if(Object.keys(c).length) track.applyConstraints({advanced:[c]}).catch(function(){});
+  }catch(e){}
 }
+
 async function toggleScannerTorch(){
-  try{const video=document.querySelector('#scannerRegion video');if(!video||!video.srcObject)return;const track=video.srcObject.getVideoTracks()[0];const caps=track.getCapabilities?track.getCapabilities():{};if(!caps.torch){alert('Senter tidak didukung.');return;}scannerTorchOn=!scannerTorchOn;await track.applyConstraints({advanced:[{torch:scannerTorchOn}]});const btn=document.getElementById('scannerTorchBtn');if(btn)btn.textContent=scannerTorchOn?'Senter: Nyala':'Senter: Mati';}catch(e){alert(e.message);}
+  try{
+    const video=document.querySelector('#scannerRegion video');
+    if(!video||!video.srcObject) return;
+    const track=video.srcObject.getVideoTracks()[0];
+    const caps=track.getCapabilities?track.getCapabilities():{};
+    if(!caps.torch){ alert('Senter tidak didukung.'); return; }
+    scannerTorchOn=!scannerTorchOn;
+    await track.applyConstraints({advanced:[{torch:scannerTorchOn}]});
+    const btn=document.getElementById('scannerTorchBtn');
+    if(btn) btn.textContent=scannerTorchOn?'Senter: Nyala':'Senter: Mati';
+  }catch(e){ alert(e.message); }
 }
-function playScanBeep(){try{const ctx=new(window.AudioContext||window.webkitAudioContext)();const osc=ctx.createOscillator();const gain=ctx.createGain();osc.connect(gain);gain.connect(ctx.destination);osc.type='sine';osc.frequency.value=1500;gain.gain.setValueAtTime(.001,ctx.currentTime);gain.gain.exponentialRampToValueAtTime(.35,ctx.currentTime+.01);gain.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.18);osc.start(ctx.currentTime);osc.stop(ctx.currentTime+.2);if(navigator.vibrate)navigator.vibrate(80);}catch(e){}}
-function onScanSuccess(decodedText){playScanBeep();const cb=scanCallback;closeScanner();if(cb)cb(decodedText);}
-function closeScanner(){scannerTorchOn=false;if(html5QrCode){html5QrCode.stop().then(()=>html5QrCode.clear()).catch(()=>{}).finally(()=>{html5QrCode=null;});}document.getElementById('scannerModal').classList.add('hidden');}
+
+function playScanBeep(){
+  try{
+    const ctx=new (window.AudioContext||window.webkitAudioContext)();
+    const osc=ctx.createOscillator();
+    const gain=ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type='sine'; osc.frequency.value=1500;
+    gain.gain.setValueAtTime(0.001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.35, ctx.currentTime+0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.18);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime+0.2);
+    if(navigator.vibrate) navigator.vibrate(80);
+  }catch(e){}
+}
+
+/** Suara krecing koin / kasir saat transaksi berhasil */
+function playCoinSound(){
+  try{
+    const ctx=new (window.AudioContext||window.webkitAudioContext)();
+    const now=ctx.currentTime;
+    // beberapa "ting" koin beruntun
+    const notes=[1800, 2400, 3000, 2200];
+    notes.forEach(function(freq, i){
+      const osc=ctx.createOscillator();
+      const gain=ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type='square';
+      osc.frequency.value=freq;
+      const t0=now + i*0.07;
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.exponentialRampToValueAtTime(0.22, t0+0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0+0.12);
+      osc.start(t0); osc.stop(t0+0.14);
+    });
+    // dengung rendah seperti laci kasir
+    const osc2=ctx.createOscillator();
+    const g2=ctx.createGain();
+    osc2.connect(g2); g2.connect(ctx.destination);
+    osc2.type='triangle';
+    osc2.frequency.setValueAtTime(120, now);
+    osc2.frequency.exponentialRampToValueAtTime(60, now+0.35);
+    g2.gain.setValueAtTime(0.001, now);
+    g2.gain.exponentialRampToValueAtTime(0.15, now+0.02);
+    g2.gain.exponentialRampToValueAtTime(0.001, now+0.4);
+    osc2.start(now); osc2.stop(now+0.42);
+    if(navigator.vibrate) navigator.vibrate([40, 40, 80]);
+  }catch(e){}
+}
+
+function onScanSuccess(decodedText){
+  playScanBeep();
+  const cb=scanCallback;
+  closeScanner();
+  if(cb) cb(decodedText);
+}
+
+function closeScanner(){
+  document.getElementById('scannerModal').classList.add('hidden');
+  // stop di background, jangan blok UI
+  stopScannerFully();
+}
 function handleProductScan(code){document.getElementById('prodBarcode').value=code;}
 function handlePosScan(code){const prod=products.find(p=>p.barcode&&p.barcode===code);if(!prod){alert('Barcode "'+code+'" tidak ditemukan.');return;}addToCart(prod.id);}
 
@@ -214,6 +379,7 @@ async function processTransaction(){
   try{
     const result=await apiPost('saveSale',{sale,items:cart.map(i=>({id:i.id,qty:i.qty})),kasbon:kasbonEntry});
     if(result.status!=='success') throw new Error(result.message||'Gagal');
+    playCoinSound();
     showReceipt(transId,timeStr,total,method,cart.slice());
     cart.forEach(i=>{const prod=products.find(p=>p.id===i.id);if(prod)prod.stock-=i.qty;});
     salesHistory.push(sale); if(kasbonEntry) kasbonList.push(kasbonEntry);
