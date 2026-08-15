@@ -39,7 +39,7 @@ async function loadAllData(showOverlay=true){
   try{
     const data=await apiGet('getData');
     products=(data.products||[]).map(normalizeProduct);
-    await ensureFuelProduct(false);
+    await ensureFuelProduct(true);
     salesHistory=data.sales||[];
     kasbonList=data.kasbon||[];
     expenses=data.expenses||[];

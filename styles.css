@@ -122,19 +122,23 @@ body{font-family:var(--font);background:radial-gradient(ellipse 80% 50% at 10% -
     max-height:min(88vh,720px);
     border-radius:20px 20px 0 0;
     display:flex!important;flex-direction:column;
-    transform:translateY(110%);
-    transition:transform .28s cubic-bezier(.2,.8,.2,1);
+    transform:translateY(calc(100% + 40px))!important;
+    visibility:hidden;
+    pointer-events:none;
+    transition:transform .28s cubic-bezier(.2,.8,.2,1),visibility .28s;
     box-shadow:0 -12px 40px rgba(20,53,42,.18);
     margin:0!important;border:none;border-top:1px solid var(--border);
-    /* keluarkan dari layout flow */
     width:100%;
   }
-  .pos-cart.open{transform:translateY(0)!important}
+  .pos-cart.open{
+    transform:translateY(0)!important;
+    visibility:visible!important;
+    pointer-events:auto!important;
+  }
   .pos-cart .cart-list{max-height:32vh;min-height:80px}
   .cart-sheet-handle{display:flex;justify-content:center;padding:10px 0 0;cursor:pointer}
   .cart-sheet-handle span{width:40px;height:4px;border-radius:999px;background:var(--border-strong)}
   .pos-cart-close-mobile{display:inline-flex!important}
-  /* Bar hijau selalu di atas nav bawah */
   .pos-mobile-bar{
     display:none;
     position:fixed;left:0;right:0;z-index:55;
@@ -142,6 +146,13 @@ body{font-family:var(--font);background:radial-gradient(ellipse 80% 50% at 10% -
     padding:0 12px 10px;pointer-events:none;
   }
   body.page-pos .pos-mobile-bar{display:block!important}
+  /* ruang di bawah grid produk = tinggi bar + nav, tanpa panel keranjang */
+  body.page-pos .pos-products .card-body{
+    padding-bottom:calc(100px + env(safe-area-inset-bottom,0px))!important;
+  }
+  body.page-pos .content{
+    padding-bottom:calc(120px + env(safe-area-inset-bottom,0px))!important;
+  }
 }
 @media(min-width:900px){
   .pos-layout{grid-template-columns:1.2fr .8fr;height:calc(100vh - 120px);min-height:560px}
@@ -169,10 +180,6 @@ body.page-pos .pos-mobile-bar{display:block}
 body:not(.page-pos) .pos-mobile-bar{display:none!important}
 @media(min-width:900px){body.page-pos .pos-mobile-bar{display:none!important}}
 
-/* padding content saat di POS mobile biar produk tidak tertutup bar */
-@media(max-width:899px){
-  body.page-pos .content{padding-bottom:calc(140px + env(safe-area-inset-bottom,0px))}
-}
 .chip-row{display:flex;gap:7px;overflow-x:auto;padding-bottom:10px}
 .chip{padding:7px 14px;border-radius:999px;font-size:12px;font-weight:800;border:1.5px solid var(--border);background:#fff;color:var(--text-2);cursor:pointer;white-space:nowrap;font-family:var(--font);flex-shrink:0}
 .chip.active{background:linear-gradient(135deg,#22c55e,#16a34a);border-color:transparent;color:#fff;box-shadow:0 4px 12px rgba(22,163,74,.3)}
