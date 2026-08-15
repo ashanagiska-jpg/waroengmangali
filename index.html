@@ -17,6 +17,7 @@
       <nav class="sidebar-nav">
         <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-item active"><span class="icon-wrap"><i data-lucide="layout-dashboard" style="width:18px;height:18px"></i></span>Dashboard</button>
         <button onclick="switchTab('pos')" id="nav-pos" class="nav-item"><span class="icon-wrap"><i data-lucide="shopping-cart" style="width:18px;height:18px"></i></span>Kasir (POS)</button>
+        <button onclick="switchTab('pertalite')" id="nav-pertalite" class="nav-item"><span class="icon-wrap"><i data-lucide="fuel" style="width:18px;height:18px"></i></span>Pertalite</button>
         <button onclick="switchTab('stok')" id="nav-stok" class="nav-item"><span class="icon-wrap"><i data-lucide="package" style="width:18px;height:18px"></i></span>Stok Barang</button>
         <button onclick="switchTab('kasbon')" id="nav-kasbon" class="nav-item"><span class="icon-wrap"><i data-lucide="notebook-pen" style="width:18px;height:18px"></i></span>Kasbon</button>
         <button onclick="switchTab('pengeluaran')" id="nav-pengeluaran" class="nav-item"><span class="icon-wrap"><i data-lucide="wallet" style="width:18px;height:18px"></i></span>Pengeluaran</button>
@@ -49,6 +50,7 @@
               <button class="quick-btn" onclick="switchTab('pos')"><i data-lucide="shopping-cart" style="width:20px;height:20px"></i>Kasir</button>
               <button class="quick-btn" onclick="switchTab('stok');openProductModal()"><i data-lucide="plus" style="width:20px;height:20px"></i>Tambah Barang</button>
               <button class="quick-btn" onclick="switchTab('kasbon');openKasbonModal()"><i data-lucide="notebook-pen" style="width:20px;height:20px"></i>Kasbon</button>
+              <button class="quick-btn" onclick="switchTab('pertalite')"><i data-lucide="fuel" style="width:20px;height:20px"></i>Pertalite</button>
               <button class="quick-btn" onclick="switchTab('pengeluaran');openExpenseModal()"><i data-lucide="wallet" style="width:20px;height:20px"></i>Pengeluaran</button>
             </div>
           </div>
@@ -64,8 +66,9 @@
           <div class="pos-layout">
             <div class="card pos-products">
               <div class="card-head" style="gap:10px">
-                <div class="search-box"><i data-lucide="search" class="icon" style="width:15px;height:15px"></i><input type="text" id="posSearch" onkeyup="renderPosProducts()" placeholder="Cari barang..." class="input"></div>
-                <button onclick="openScanner(handlePosScan)" class="btn btn-primary btn-sm"><i data-lucide="scan-line" style="width:15px;height:15px"></i> Scan</button>
+                <div class="search-box" style="flex:1"><i data-lucide="search" class="icon" style="width:15px;height:15px"></i><input type="text" id="posSearch" oninput="renderPosProducts()" placeholder="Cari / scan barcode..." class="input" autocomplete="off" enterkeyhint="done"></div>
+                <button type="button" onclick="openScanner(handlePosScan)" class="btn btn-primary btn-sm" title="Kamera"><i data-lucide="camera" style="width:15px;height:15px"></i></button>
+                <input type="text" id="hwScanInput" inputmode="none" autocomplete="off" aria-hidden="true" style="position:absolute;opacity:0;width:1px;height:1px;pointer-events:none" tabindex="-1">
               </div>
               <div class="card-pad card-body" style="padding-top:10px"><div class="chip-row hide-scrollbar" id="categoryFilters"></div><div class="product-grid" id="posProductGrid"></div></div>
             </div>
@@ -104,6 +107,126 @@
               </div>
               <span class="pos-bar-cta">Bayar →</span>
             </button>
+          </div>
+        </section>
+
+        <section id="tab-pertalite" class="tab-content hidden space-y-4">
+          <div class="fuel-hero card">
+            <div class="fuel-hero-bg"></div>
+            <div class="fuel-hero-content">
+              <div class="fuel-badge"><i data-lucide="fuel" style="width:16px;height:16px"></i> BBM · Pertalite</div>
+              <div class="fuel-price-line">
+                <span class="fuel-price-label">Harga / liter</span>
+                <span class="fuel-price-value" id="fuelPriceDisplay">Rp 13.000</span>
+              </div>
+              <div class="fuel-stock-line">
+                <div>
+                  <div class="fuel-stock-label">Sisa stok</div>
+                  <div class="fuel-stock-value"><span id="fuelStockLiters">0</span> <small>liter</small></div>
+                </div>
+                <div class="fuel-stock-rp">
+                  <div class="fuel-stock-label">Nilai stok</div>
+                  <div class="fuel-stock-value-sm" id="fuelStockValue">Rp 0</div>
+                </div>
+              </div>
+              <div class="fuel-tank-wrap">
+                <div class="fuel-tank" aria-label="Tabung stok BBM">
+                  <div class="fuel-tank-liquid" id="fuelTankLiquid" style="height:0%"></div>
+                  <div class="fuel-tank-pct" id="fuelTankPct">0%</div>
+                </div>
+                <div class="fuel-tank-meta">
+                  <div class="row"><span>Kapasitas</span><strong id="fuelCapacityLabel">200 L</strong></div>
+                  <div class="row"><span>Terisi</span><strong id="fuelFilledLabel">0 L</strong></div>
+                  <div class="row"><span>Kosong</span><strong id="fuelEmptyLabel">200 L</strong></div>
+                  <p class="fuel-capacity-hint">Tabung = visual stok. Kapasitas acuan bisa diubah di pengaturan.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="two-col">
+            <div class="card fuel-calc-card">
+              <div class="card-head"><div><h2>Jual Pertalite</h2><p>Isi nominal rupiah atau liter</p></div></div>
+              <div class="card-pad space-y-3">
+                <div class="fuel-mode-tabs">
+                  <button type="button" class="fuel-mode active" id="fuelModeRp" onclick="setFuelMode('rp')">Bayar (Rp)</button>
+                  <button type="button" class="fuel-mode" id="fuelModeLiter" onclick="setFuelMode('liter')">Liter</button>
+                </div>
+                <div id="fuelInputRpWrap">
+                  <label class="label">Nominal pembelian</label>
+                  <input type="number" id="fuelAmountRp" class="cash-input" placeholder="5000" min="0" step="500" oninput="calcFuelPreview()">
+                  <div class="fuel-quick">
+                    <button type="button" class="fuel-chip" onclick="setFuelRp(5000)">5rb</button>
+                    <button type="button" class="fuel-chip" onclick="setFuelRp(10000)">10rb</button>
+                    <button type="button" class="fuel-chip" onclick="setFuelRp(20000)">20rb</button>
+                    <button type="button" class="fuel-chip" onclick="setFuelRp(50000)">50rb</button>
+                    <button type="button" class="fuel-chip" onclick="setFuelRp(100000)">100rb</button>
+                  </div>
+                </div>
+                <div id="fuelInputLiterWrap" class="hidden">
+                  <label class="label">Jumlah liter</label>
+                  <input type="number" id="fuelAmountLiter" class="cash-input" placeholder="1.5" min="0" step="0.1" oninput="calcFuelPreview()">
+                </div>
+                <div class="fuel-preview" id="fuelPreview">
+                  <div class="fuel-preview-row"><span>Liter keluar</span><strong id="fuelPreviewLiter">0 L</strong></div>
+                  <div class="fuel-preview-row"><span>Total bayar</span><strong id="fuelPreviewTotal">Rp 0</strong></div>
+                </div>
+                <div>
+                  <label class="label">Metode bayar</label>
+                  <select id="fuelPayMethod" class="select" onchange="toggleFuelKasbon()">
+                    <option value="Tunai">Tunai</option>
+                    <option value="QRIS/Transfer">QRIS / Transfer</option>
+                    <option value="Kasbon">Kasbon</option>
+                  </select>
+                </div>
+                <div id="fuelKasbonWrap" class="hidden">
+                  <label class="label">Nama pelanggan</label>
+                  <input type="text" id="fuelKasbonName" class="input" placeholder="Nama">
+                </div>
+                <button type="button" id="fuelSellBtn" class="btn btn-primary btn-block fuel-sell-btn" onclick="processFuelSale()">
+                  <i data-lucide="zap" style="width:18px;height:18px"></i>
+                  <span>Proses Penjualan</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="space-y-4">
+              <div class="card">
+                <div class="card-head"><div><h2>Pengaturan</h2><p>Harga &amp; stok liter</p></div></div>
+                <div class="card-pad space-y-3">
+                  <div class="form-group">
+                    <label class="label">Harga per liter (Rp)</label>
+                    <input type="number" id="fuelEditPrice" class="input" min="0" step="100" placeholder="13000">
+                  </div>
+                  <div class="form-group">
+                    <label class="label">Harga modal / liter (Rp)</label>
+                    <input type="number" id="fuelEditCost" class="input" min="0" step="100" placeholder="12500">
+                  </div>
+                  <button type="button" class="btn btn-primary btn-block" onclick="saveFuelPrice()">Simpan Harga</button>
+                  <hr style="border:none;border-top:1px solid var(--border);margin:8px 0">
+                  <div class="form-group">
+                    <label class="label">Kapasitas tabung (liter)</label>
+                    <input type="number" id="fuelCapacity" class="input" min="1" step="1" placeholder="200" value="200">
+                  </div>
+                  <div class="form-group">
+                    <label class="label">Tambah stok (liter)</label>
+                    <input type="number" id="fuelAddStock" class="input" min="0" step="0.1" placeholder="20">
+                  </div>
+                  <button type="button" class="btn btn-ghost btn-block" onclick="addFuelStock()">+ Tambah Stok Liter</button>
+                  <button type="button" class="btn btn-ghost btn-block" onclick="setFuelStockManual()">Set Stok Manual...</button>
+                </div>
+              </div>
+              <div class="card">
+                <div class="card-head"><div><h2>Hari Ini</h2><p>Penjualan Pertalite</p></div></div>
+                <div class="card-pad">
+                  <div class="fuel-stats-mini">
+                    <div><div class="label">Omset</div><div class="font-bold text-accent" id="fuelTodayOmset">Rp 0</div></div>
+                    <div><div class="label">Liter terjual</div><div class="font-bold" id="fuelTodayLiter">0 L</div></div>
+                    <div><div class="label">Transaksi</div><div class="font-bold" id="fuelTodayTx">0</div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -157,6 +280,7 @@
   <nav class="mobile-nav">
     <button onclick="switchTab('dashboard')" id="navm-dashboard" class="active"><i data-lucide="layout-dashboard" style="width:18px;height:18px"></i><span>Home</span></button>
     <button onclick="switchTab('pos')" id="navm-pos"><i data-lucide="shopping-cart" style="width:18px;height:18px"></i><span>Kasir</span></button>
+    <button onclick="switchTab('pertalite')" id="navm-pertalite"><i data-lucide="fuel" style="width:18px;height:18px"></i><span>BBM</span></button>
     <button onclick="switchTab('stok')" id="navm-stok"><i data-lucide="package" style="width:18px;height:18px"></i><span>Stok</span></button>
     <button onclick="switchTab('kasbon')" id="navm-kasbon"><i data-lucide="notebook-pen" style="width:18px;height:18px"></i><span>Kasbon</span></button>
     <button onclick="switchTab('pengeluaran')" id="navm-pengeluaran"><i data-lucide="wallet" style="width:18px;height:18px"></i><span>Keluar</span></button>
@@ -191,7 +315,7 @@
   <div id="restockModal" class="modal-bg hidden"><div class="modal modal-sm"><div class="modal-head"><h3>Tambah Stok</h3><button onclick="closeRestockModal()" class="modal-x"><i data-lucide="x" style="width:16px;height:16px"></i></button></div><form onsubmit="saveRestock(event)"><input type="hidden" id="restockId"><p style="font-size:14px;margin-bottom:4px"><strong id="restockName">-</strong></p><p class="text-muted" style="font-size:12px;margin-bottom:14px;font-weight:600">Stok saat ini: <span id="restockCurrent">0</span></p><div class="form-group"><label class="label">Jumlah Masuk</label><input type="number" id="restockQty" required min="1" class="input" placeholder="0"></div><div class="form-actions"><button type="button" onclick="closeRestockModal()" class="btn btn-ghost">Batal</button><button type="submit" class="btn btn-primary">Tambah Stok</button></div></form></div></div>
   <div id="expenseModal" class="modal-bg hidden"><div class="modal"><div class="modal-head"><h3>Catat Pengeluaran</h3><button onclick="closeExpenseModal()" class="modal-x"><i data-lucide="x" style="width:16px;height:16px"></i></button></div><form id="expenseForm" onsubmit="saveExpense(event)"><div class="form-group"><label class="label">Kategori</label><select id="expCategory" class="select"><option value="Operasional (Listrik/Air)">Operasional (Listrik/Air)</option><option value="Beli Kantong Plastik/Peralatan">Beli Kantong Plastik/Peralatan</option><option value="Transportasi Kulakan">Transportasi Kulakan</option><option value="Lain-lain">Lain-lain</option></select></div><div class="form-group"><label class="label">Keterangan</label><input type="text" id="expDesc" required class="input"></div><div class="form-group"><label class="label">Nominal (Rp)</label><input type="number" id="expAmount" required min="0" class="input"></div><div class="form-actions"><button type="button" onclick="closeExpenseModal()" class="btn btn-ghost">Batal</button><button type="submit" class="btn btn-primary">Simpan</button></div></form></div></div>
   <div id="kasbonModal" class="modal-bg hidden"><div class="modal modal-sm"><div class="modal-head"><h3>Tambah Kasbon</h3><button onclick="closeKasbonModal()" class="modal-x"><i data-lucide="x" style="width:16px;height:16px"></i></button></div><form id="kasbonForm" onsubmit="saveKasbonManual(event)"><div class="form-group"><label class="label">Nama Pelanggan</label><input type="text" id="kasbonModalCustomer" required class="input"></div><div class="form-group"><label class="label">Total Hutang (Rp)</label><input type="number" id="kasbonModalTotal" required min="0" class="input"></div><div class="form-group"><label class="label">Keterangan</label><input type="text" id="kasbonModalNote" class="input" placeholder="Opsional"></div><div class="form-actions"><button type="button" onclick="closeKasbonModal()" class="btn btn-ghost">Batal</button><button type="submit" class="btn btn-primary">Simpan</button></div></form></div></div>
-  <div id="scannerModal" class="modal-bg hidden"><div class="modal"><div class="modal-head"><h3 style="font-size:14px;display:flex;align-items:center;gap:8px"><i data-lucide="scan-line" style="width:16px;height:16px;color:var(--primary)"></i> Scan Barcode</h3><button onclick="closeScanner()" class="modal-x"><i data-lucide="x" style="width:16px;height:16px"></i></button></div><div id="scannerRegion"></div><div style="display:flex;justify-content:center;margin-top:12px"><button type="button" id="scannerTorchBtn" onclick="toggleScannerTorch()" class="btn btn-ghost btn-sm">Senter: Mati</button></div><p class="text-muted" style="font-size:11px;text-align:center;margin-top:10px;font-weight:600">Dekatkan barcode, tahan stabil 1-2 detik</p></div></div>
+  <div id="scannerModal" class="modal-bg hidden"><div class="modal"><div class="modal-head"><h3 style="font-size:14px;display:flex;align-items:center;gap:8px"><i data-lucide="scan-line" style="width:16px;height:16px;color:var(--primary)"></i> Scan Barcode</h3><button onclick="closeScanner()" class="modal-x"><i data-lucide="x" style="width:16px;height:16px"></i></button></div><div id="scannerRegion"></div><div style="display:flex;justify-content:center;margin-top:12px"><button type="button" id="scannerTorchBtn" onclick="toggleScannerTorch()" class="btn btn-ghost btn-sm">Senter: Mati</button></div><p class="text-muted" style="font-size:11px;text-align:center;margin-top:10px;font-weight:600">Dekatkan barcode, tahan stabil 1–2 detik. Scanner USB/Bluetooth juga otomatis aktif di kasir.</p></div></div>
   <div id="doaModal" class="modal-bg hidden"><div class="modal"><p dir="rtl" lang="ar" class="doa-ar">اَللَّهُمَّ اكْفِنِيْ بِحَلَالِكَ عَنْ حَرَامِكَ وَأَغْنِنِيْ بِفَضْلِكَ عَمَّنْ سِوَاكَ</p><p class="doa-lat">Allahumma ikfini bihalalika 'an haramika, wa aghnini bifadhlika 'amman siwaka.</p><button onclick="closeDoaModal()" class="btn btn-primary btn-block">Aamiin</button></div></div>
   <div id="receiptModal" class="modal-bg hidden"><div class="modal modal-sm" style="text-align:center"><div class="receipt-ok"><i data-lucide="check" style="width:24px;height:24px"></i></div><h3 style="font-size:16px;font-weight:800">Transaksi Berhasil!</h3><div id="receiptDetails" class="receipt-box"></div><div class="flex gap-2" style="margin-top:4px"><button onclick="printReceipt()" class="btn btn-ghost" style="flex:1"><i data-lucide="printer" style="width:15px;height:15px"></i> Cetak</button><button onclick="closeReceiptModal()" class="btn btn-primary" style="flex:1">Selesai</button></div></div></div>
 

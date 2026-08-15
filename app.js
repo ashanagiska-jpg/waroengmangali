@@ -4,15 +4,19 @@ let activeCategory='Semua', reportFilter='all', currentPage='dashboard';
 let html5QrCode=null, scanCallback=null, scannerTorchOn=false, lastReceiptData=null;
 
 /** GANTI URL INI setelah Deploy Web App baru di Apps Script */
-const WEB_APP_URL='https://script.google.com/macros/s/AKfycbxVpG2wzDOuvKFY-j7vGvFF2ybeWsWpBEglrR9J9ec6cNpqHDyavZPRVM-VWWoY3OpPJg/exec';
+const WEB_APP_URL='https://script.google.com/macros/s/AKfycbxXMQ0zmVzz2uBTR8Nv0kK6Kxto_zM7XmqINYn4-o8FL_64HZVvzyqtSQM8ZLLk1TNFQA/exec';
 
-const PAGE_TITLES={dashboard:'Dashboard',pos:'Kasir (POS)',stok:'Stok Barang',kasbon:'Catatan Kasbon',pengeluaran:'Pengeluaran',laporan:'Laporan Keuangan'};
+const PAGE_TITLES={dashboard:'Dashboard',pos:'Kasir (POS)',pertalite:'Pertalite (BBM)',stok:'Stok Barang',kasbon:'Catatan Kasbon',pengeluaran:'Pengeluaran',laporan:'Laporan Keuangan'};
+const FUEL_PRODUCT_ID='FUEL-PERTALITE';
+const FUEL_BARCODE='PERTALITE';
+let fuelMode='rp'; // 'rp' | 'liter'
 const PLACEHOLDER_IMG='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect fill="#e8f6ee" width="120" height="120"/><text x="60" y="68" text-anchor="middle" font-size="40">🛒</text></svg>');
 
 window.onload=async function(){
   lucide.createIcons();
   if(window.self!==window.top){const b=document.getElementById('embedBanner');b.classList.remove('hidden');b.style.display='flex';}
   openDoaModal(); startLiveClock();
+  initHardwareScanner();
   await loadAllData();
   renderCurrentPage();
   switchTab('dashboard');
@@ -35,6 +39,7 @@ async function loadAllData(showOverlay=true){
   try{
     const data=await apiGet('getData');
     products=(data.products||[]).map(normalizeProduct);
+    await ensureFuelProduct(false);
     salesHistory=data.sales||[];
     kasbonList=data.kasbon||[];
     expenses=data.expenses||[];
@@ -83,6 +88,7 @@ async function refreshAllData(silent=false){
 function renderCurrentPage(){
   renderDashboard(); renderCategoryFilters(); renderPosProducts();
   renderStockTable(); renderKasbonTable(); renderExpenseTable(); updateFinancialReports();
+  if(typeof renderFuelPage==='function' && getFuelProduct()) renderFuelPage();
 }
 
 function switchTab(tabId){
@@ -99,6 +105,7 @@ function switchTab(tabId){
   window.scrollTo({top:0,behavior:'instant'});
   if(tabId==='dashboard') renderDashboard();
   else if(tabId==='pos'){ renderCategoryFilters(); renderPosProducts(); renderCart(); }
+  else if(tabId==='pertalite'){ ensureFuelProduct().then(function(){ renderFuelPage(); }); }
   else if(tabId==='stok') renderStockTable();
   else if(tabId==='kasbon') renderKasbonTable();
   else if(tabId==='pengeluaran') renderExpenseTable();
@@ -296,8 +303,148 @@ function closeScanner(){
   // stop di background, jangan blok UI
   stopScannerFully();
 }
-function handleProductScan(code){document.getElementById('prodBarcode').value=code;}
-function handlePosScan(code){const prod=products.find(p=>p.barcode&&p.barcode===code);if(!prod){alert('Barcode "'+code+'" tidak ditemukan.');return;}addToCart(prod.id);}
+function handleProductScan(code){
+  const el=document.getElementById('prodBarcode');
+  if(el){ el.value=String(code||'').trim(); el.focus(); }
+}
+
+/** Cari produk by barcode (normalisasi: trim, tanpa spasi) */
+function findProductByBarcode(code){
+  const raw=String(code||'').trim();
+  if(!raw) return null;
+  const norm=raw.replace(/\s+/g,'');
+  // exact
+  let prod=products.find(p=>p.barcode && String(p.barcode).trim()===raw);
+  if(prod) return prod;
+  prod=products.find(p=>p.barcode && String(p.barcode).replace(/\s+/g,'')===norm);
+  if(prod) return prod;
+  // kadang scanner kirim leading zero beda
+  prod=products.find(p=>{
+    if(!p.barcode) return false;
+    const b=String(p.barcode).replace(/\s+/g,'');
+    return b===norm || b.replace(/^0+/,'')===norm.replace(/^0+/,'');
+  });
+  return prod||null;
+}
+
+function showScanToast(msg, isError){
+  let t=document.getElementById('scanToast');
+  if(!t){
+    t=document.createElement('div');
+    t.id='scanToast';
+    t.style.cssText='position:fixed;top:72px;left:50%;transform:translateX(-50%);z-index:90;padding:10px 18px;border-radius:12px;font-weight:800;font-size:13px;font-family:var(--font);box-shadow:0 8px 24px rgba(0,0,0,.15);max-width:90vw;text-align:center;transition:opacity .2s';
+    document.body.appendChild(t);
+  }
+  t.textContent=msg;
+  t.style.background=isError?'#ffe4e6':'#dcfce7';
+  t.style.color=isError?'#e11d48':'#15803d';
+  t.style.opacity='1';
+  clearTimeout(t._hide);
+  t._hide=setTimeout(function(){ t.style.opacity='0'; }, 1800);
+}
+
+function handlePosScan(code){
+  const raw=String(code||'').trim();
+  if(!raw) return;
+  const prod=findProductByBarcode(raw);
+  if(!prod){
+    playScanBeep();
+    showScanToast('Barcode tidak ditemukan: '+raw, true);
+    // isi search agar user bisa cek
+    const s=document.getElementById('posSearch');
+    if(s){ s.value=raw; renderPosProducts(); }
+    return;
+  }
+  if(prod.stock<=0){
+    showScanToast(prod.name+' — stok habis', true);
+    return;
+  }
+  addToCart(prod.id);
+  playScanBeep();
+  showScanToast('+ '+prod.name);
+  // kosongkan search agar siap scan berikutnya
+  const s=document.getElementById('posSearch');
+  if(s){ s.value=''; renderPosProducts(); }
+}
+
+/**
+ * Scanner fisik USB/Bluetooth (keyboard wedge):
+ * mengetik karakter sangat cepat lalu Enter.
+ * Deteksi buffer cepat → proses sebagai barcode.
+ */
+let hwScanBuffer='';
+let hwScanLastTime=0;
+const HW_SCAN_MAX_GAP=80; // ms antar karakter
+const HW_SCAN_MIN_LEN=4;
+
+function initHardwareScanner(){
+  document.addEventListener('keydown', function(e){
+    // Abaikan jika user mengetik di input biasa (kecuali posSearch & prodBarcode)
+    const tag=(e.target && e.target.tagName||'').toLowerCase();
+    const id=e.target && e.target.id || '';
+    const isScanField = id==='posSearch' || id==='prodBarcode' || id==='hwScanInput';
+    const isTypingInForm = (tag==='input'||tag==='textarea'||tag==='select') && !isScanField;
+
+    // Saat di halaman POS, izinkan scan global (kecuali form modal)
+    const onPos = currentPage==='pos';
+    const modalOpen = document.querySelector('.modal-bg:not(.hidden)');
+
+    if(isTypingInForm && !onPos) return;
+    if(modalOpen && id!=='prodBarcode') {
+      // di modal produk, hanya terima di field barcode
+      if(id!=='prodBarcode') return;
+    }
+
+    const now=Date.now();
+
+    if(e.key==='Enter'){
+      if(hwScanBuffer.length>=HW_SCAN_MIN_LEN){
+        e.preventDefault();
+        const code=hwScanBuffer;
+        hwScanBuffer='';
+        hwScanLastTime=0;
+        if(id==='prodBarcode' || (modalOpen && document.getElementById('productModal') && !document.getElementById('productModal').classList.contains('hidden'))){
+          handleProductScan(code);
+        } else {
+          // pastikan di mode kasir
+          if(currentPage!=='pos') switchTab('pos');
+          handlePosScan(code);
+        }
+        return;
+      }
+      // Enter di posSearch: coba barcode exact dulu
+      if(id==='posSearch'){
+        const v=(e.target.value||'').trim();
+        if(v && findProductByBarcode(v)){
+          e.preventDefault();
+          handlePosScan(v);
+          return;
+        }
+      }
+      hwScanBuffer='';
+      return;
+    }
+
+    // karakter printable
+    if(e.key.length===1 && !e.ctrlKey && !e.altKey && !e.metaKey){
+      if(now-hwScanLastTime > HW_SCAN_MAX_GAP) hwScanBuffer='';
+      hwScanBuffer += e.key;
+      hwScanLastTime = now;
+      // jika buffer sudah panjang & gap cepat, cegah masuk ke search (opsional)
+      // biarkan tetap masuk ke focused input — Enter yang memproses
+    } else if(e.key==='Tab' || e.key==='Escape'){
+      hwScanBuffer='';
+    }
+  }, true);
+}
+
+/** Input khusus fokus scan (tersembunyi di POS) — untuk scanner yang butuh target input */
+function focusScanInput(){
+  let el=document.getElementById('hwScanInput');
+  if(!el) return;
+  el.value='';
+  el.focus();
+}
 
 function todayStr(){return new Date().toLocaleDateString('id-ID');}
 function filterSalesToday(){const t=todayStr();return salesHistory.filter(s=>s.time&&s.time.includes(t));}
@@ -351,7 +498,7 @@ function filterCategory(cat){activeCategory=cat;renderCategoryFilters();renderPo
 function renderPosProducts(){
   const search=(document.getElementById('posSearch')?.value||'').toLowerCase();
   const grid=document.getElementById('posProductGrid'); if(!grid) return;
-  const filtered=products.filter(p=>{const matchesCat=activeCategory==='Semua'||p.category===activeCategory;const matchesSearch=p.name.toLowerCase().includes(search)||p.category.toLowerCase().includes(search)||(p.barcode||'').toLowerCase().includes(search);return matchesCat&&matchesSearch;});
+  const filtered=products.filter(p=>{if(p.id===FUEL_PRODUCT_ID||p.category==='BBM')return false;const matchesCat=activeCategory==='Semua'||p.category===activeCategory;const matchesSearch=p.name.toLowerCase().includes(search)||p.category.toLowerCase().includes(search)||(p.barcode||'').toLowerCase().includes(search);return matchesCat&&matchesSearch;});
   if(!filtered.length){grid.innerHTML='<div class="empty" style="grid-column:1/-1">Produk tidak ditemukan</div>';return;}
   grid.innerHTML=filtered.map(p=>`<div onclick="addToCart('${p.id}')" class="prod-card">${p.stock<=(p.minStock||5)?'<span class="low-badge">TIPIS</span>':''}<div class="thumb"><img src="${productImage(p)}" alt="" loading="lazy" data-orig="${productImage(p)}" onerror="onImgError(this)"></div><div class="body"><span class="cat">${p.category}</span><div class="name">${p.name}</div><div class="price">Rp ${p.price.toLocaleString('id-ID')}</div><div class="stock ${p.stock===0?'zero':''}">Stok: ${p.stock}</div></div></div>`).join('');
 }
@@ -571,3 +718,263 @@ function updateFinancialReports(){
   const cards=document.getElementById('salesHistoryCardsMobile');
   if(cards) cards.innerHTML=[...display].reverse().map(s=>`<div class="m-item"><div class="flex justify-between items-center gap-2"><div><div class="font-mono text-muted">${s.id}</div><div class="text-muted" style="font-size:12px">${s.time}</div></div><span class="badge badge-muted">${s.method}</span></div><p style="font-size:12px;color:var(--text-2);margin-top:6px">${s.itemsSummary}</p><div class="font-bold text-accent" style="margin-top:4px">Rp ${s.total.toLocaleString('id-ID')}</div></div>`).join('');
 }
+
+
+/* ===== PERTALITE / BBM ===== */
+async function ensureFuelProduct(saveIfNew){
+  if(saveIfNew===undefined) saveIfNew=true;
+  let p=products.find(x=>x.id===FUEL_PRODUCT_ID || (x.barcode&&x.barcode.toUpperCase()===FUEL_BARCODE));
+  if(p){
+    // pastikan id konsisten
+    if(p.id!==FUEL_PRODUCT_ID) p.id=FUEL_PRODUCT_ID;
+    return p;
+  }
+  // default produk
+  const neu={
+    id:FUEL_PRODUCT_ID,
+    name:'Pertalite',
+    barcode:FUEL_BARCODE,
+    category:'BBM',
+    stock:0,
+    cost:12500,
+    price:13000,
+    minStock:10,
+    image:''
+  };
+  products.push(neu);
+  if(saveIfNew){
+    try{
+      await apiPost('saveProduct',{id:FUEL_PRODUCT_ID,name:neu.name,barcode:neu.barcode,category:neu.category,stock:neu.stock,cost:neu.cost,price:neu.price,minStock:neu.minStock,image:''});
+    }catch(e){ console.warn('Gagal init produk Pertalite', e); }
+  }
+  return neu;
+}
+
+function getFuelProduct(){
+  return products.find(x=>x.id===FUEL_PRODUCT_ID || (x.barcode&&String(x.barcode).toUpperCase()===FUEL_BARCODE));
+}
+
+function setFuelMode(mode){
+  fuelMode=mode;
+  document.getElementById('fuelModeRp').classList.toggle('active', mode==='rp');
+  document.getElementById('fuelModeLiter').classList.toggle('active', mode==='liter');
+  document.getElementById('fuelInputRpWrap').classList.toggle('hidden', mode!=='rp');
+  document.getElementById('fuelInputLiterWrap').classList.toggle('hidden', mode!=='liter');
+  calcFuelPreview();
+}
+
+function setFuelRp(n){
+  fuelMode='rp';
+  setFuelMode('rp');
+  document.getElementById('fuelAmountRp').value=n;
+  calcFuelPreview();
+}
+
+function calcFuelPreview(){
+  const p=getFuelProduct();
+  const price=p?Number(p.price)||13000:13000;
+  let liters=0, total=0;
+  if(fuelMode==='rp'){
+    total=parseFloat(document.getElementById('fuelAmountRp').value)||0;
+    liters=price>0 ? total/price : 0;
+  }else{
+    liters=parseFloat(document.getElementById('fuelAmountLiter').value)||0;
+    total=liters*price;
+  }
+  const elL=document.getElementById('fuelPreviewLiter');
+  const elT=document.getElementById('fuelPreviewTotal');
+  if(elL) elL.textContent=liters.toLocaleString('id-ID',{maximumFractionDigits:3})+' L';
+  if(elT) elT.textContent='Rp '+Math.round(total).toLocaleString('id-ID');
+}
+
+function toggleFuelKasbon(){
+  const m=document.getElementById('fuelPayMethod').value;
+  document.getElementById('fuelKasbonWrap').classList.toggle('hidden', m!=='Kasbon');
+}
+
+function renderFuelPage(){
+  const p=getFuelProduct();
+  if(!p) return;
+  const price=Number(p.price)||13000;
+  const stock=Number(p.stock)||0;
+  const value=stock*price;
+  const set=(id,v)=>{const el=document.getElementById(id); if(el) el.textContent=v;};
+  set('fuelPriceDisplay','Rp '+price.toLocaleString('id-ID'));
+  set('fuelStockLiters', stock.toLocaleString('id-ID',{maximumFractionDigits:2}));
+  set('fuelStockValue','Rp '+Math.round(value).toLocaleString('id-ID'));
+  var cap=parseFloat(localStorage.getItem('fuelCapacityLiters')||'200')||200;
+  var capInput=document.getElementById('fuelCapacity');
+  if(capInput && document.activeElement!==capInput) capInput.value=cap;
+  var pct=Math.max(0, Math.min(100, (stock/cap)*100));
+  var liquid=document.getElementById('fuelTankLiquid');
+  var pctEl=document.getElementById('fuelTankPct');
+  if(liquid) liquid.style.height=pct+'%';
+  if(pctEl) pctEl.textContent=Math.round(pct)+'%';
+  set('fuelCapacityLabel', cap.toLocaleString('id-ID')+' L');
+  set('fuelFilledLabel', stock.toLocaleString('id-ID',{maximumFractionDigits:2})+' L');
+  set('fuelEmptyLabel', Math.max(0, cap-stock).toLocaleString('id-ID',{maximumFractionDigits:2})+' L');
+  const ep=document.getElementById('fuelEditPrice');
+  const ec=document.getElementById('fuelEditCost');
+  if(ep) ep.value=price;
+  if(ec) ec.value=Number(p.cost)||0;
+
+  // statistik hari ini dari sales yang mengandung Pertalite
+  const t=todayStr();
+  const fuelSales=salesHistory.filter(s=>s.time&&s.time.includes(t) && s.itemsSummary && /pertalite/i.test(s.itemsSummary));
+  let omset=0, literSold=0;
+  fuelSales.forEach(s=>{
+    omset+=s.total||0;
+    // parse "Pertalite (0.385)" dari summary
+    const m=String(s.itemsSummary).match(/pertalite\s*\(([\d.,]+)\)/i);
+    if(m) literSold+=parseFloat(m[1].replace(',','.'))||0;
+  });
+  set('fuelTodayOmset','Rp '+omset.toLocaleString('id-ID'));
+  set('fuelTodayLiter', literSold.toLocaleString('id-ID',{maximumFractionDigits:2})+' L');
+  set('fuelTodayTx', String(fuelSales.length));
+  calcFuelPreview();
+  lucide.createIcons();
+}
+
+async function saveFuelPrice(){
+  const p=await ensureFuelProduct();
+  const price=parseFloat(document.getElementById('fuelEditPrice').value);
+  const cost=parseFloat(document.getElementById('fuelEditCost').value);
+  const capEl=document.getElementById('fuelCapacity');
+  if(capEl){
+    var cap=parseFloat(capEl.value)||200;
+    if(cap<1) cap=200;
+    localStorage.setItem('fuelCapacityLiters', String(cap));
+  }
+  if(!price||price<=0){ alert('Harga per liter tidak valid'); return; }
+  try{
+    const result=await apiPost('saveProduct',{
+      id:p.id, name:p.name, barcode:p.barcode||FUEL_BARCODE, category:'BBM',
+      stock:Number(p.stock)||0, cost:cost||0, price:price, minStock:p.minStock||10, image:p.image||''
+    });
+    if(result.status!=='success') throw new Error(result.message||'Gagal');
+    p.price=price; p.cost=cost||0;
+    renderFuelPage();
+    showScanToast('Harga Pertalite disimpan: Rp '+price.toLocaleString('id-ID'));
+    playScanBeep();
+  }catch(e){ alert('Gagal simpan harga: '+e.message); }
+}
+
+async function addFuelStock(){
+  const p=await ensureFuelProduct();
+  const add=parseFloat(document.getElementById('fuelAddStock').value);
+  if(!add||add<=0){ alert('Masukkan jumlah liter'); return; }
+  const newStock=(Number(p.stock)||0)+add;
+  try{
+    const result=await apiPost('saveProduct',{
+      id:p.id, name:p.name, barcode:p.barcode||FUEL_BARCODE, category:'BBM',
+      stock:newStock, cost:p.cost, price:p.price, minStock:p.minStock||10, image:p.image||''
+    });
+    if(result.status!=='success') throw new Error(result.message||'Gagal');
+    p.stock=newStock;
+    document.getElementById('fuelAddStock').value='';
+    renderFuelPage();
+    showScanToast('+'+add+' L stok Pertalite');
+    playCoinSound();
+  }catch(e){ alert(e.message); }
+}
+
+async function setFuelStockManual(){
+  const p=await ensureFuelProduct();
+  const v=prompt('Set stok Pertalite (liter):', String(p.stock||0));
+  if(v===null) return;
+  const stock=parseFloat(v);
+  if(isNaN(stock)||stock<0){ alert('Nilai tidak valid'); return; }
+  try{
+    const result=await apiPost('saveProduct',{
+      id:p.id, name:p.name, barcode:p.barcode||FUEL_BARCODE, category:'BBM',
+      stock:stock, cost:p.cost, price:p.price, minStock:p.minStock||10, image:p.image||''
+    });
+    if(result.status!=='success') throw new Error(result.message||'Gagal');
+    p.stock=stock;
+    renderFuelPage();
+    showScanToast('Stok diset: '+stock+' L');
+  }catch(e){ alert(e.message); }
+}
+
+async function processFuelSale(){
+  const p=await ensureFuelProduct();
+  const price=Number(p.price)||13000;
+  const cost=Number(p.cost)||0;
+  let liters=0, total=0;
+  if(fuelMode==='rp'){
+    total=parseFloat(document.getElementById('fuelAmountRp').value)||0;
+    liters=price>0 ? total/price : 0;
+  }else{
+    liters=parseFloat(document.getElementById('fuelAmountLiter').value)||0;
+    total=liters*price;
+  }
+  total=Math.round(total);
+  liters=Math.round(liters*1000)/1000; // 3 desimal
+
+  if(total<=0 || liters<=0){ alert('Masukkan nominal atau liter'); return; }
+  if(liters>(Number(p.stock)||0)+1e-9){
+    alert('Stok tidak cukup!\nSisa: '+(p.stock||0)+' L\nDiminta: '+liters+' L');
+    return;
+  }
+
+  const method=document.getElementById('fuelPayMethod').value;
+  let kasbonEntry=null;
+  const now=new Date();
+  const timeStr=now.toLocaleDateString('id-ID')+' '+now.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
+  const transId='BBM-'+Date.now().toString().slice(-6);
+
+  if(method==='Kasbon'){
+    const name=(document.getElementById('fuelKasbonName').value||'').trim();
+    if(!name){ alert('Nama pelanggan wajib untuk kasbon'); return; }
+    kasbonEntry={id:'KSB-'+Date.now().toString().slice(-5),customer:name+' (Pertalite)',total:total,time:timeStr,status:'Belum Lunas'};
+  }
+
+  // qty fractional — backend mengurangi stok numerik
+  const sale={
+    id:transId,
+    time:timeStr,
+    itemsSummary:'Pertalite ('+liters+')',
+    total:total,
+    costTotal:Math.round(liters*cost),
+    method:method
+  };
+
+  const btn=document.getElementById('fuelSellBtn');
+  if(btn){ btn.disabled=true; btn.style.opacity='.7'; }
+
+  try{
+    const result=await apiPost('saveSale',{
+      sale:sale,
+      items:[{id:p.id, qty:Number(liters)}],
+      kasbon:kasbonEntry
+    });
+    if(result.status!=='success') throw new Error(result.message||'Gagal');
+
+    p.stock=Math.round(((Number(p.stock)||0)-liters)*1000)/1000;
+    // Pastikan stok BBM tersimpan ke Google Sheet (cadangan jika pengurangan desimal gagal)
+    try{
+      await apiPost('saveProduct',{
+        id:p.id, name:p.name, barcode:p.barcode||FUEL_BARCODE, category:'BBM',
+        stock:p.stock, cost:p.cost, price:p.price, minStock:p.minStock||10, image:p.image||''
+      });
+    }catch(eStock){ console.warn('Sync stok BBM', eStock); }
+    salesHistory.push(sale);
+    if(kasbonEntry) kasbonList.push(kasbonEntry);
+
+    playCoinSound();
+    showReceipt(transId, timeStr, total, method, [{name:'Pertalite', qty:liters, price:price}]);
+    document.getElementById('fuelAmountRp').value='';
+    document.getElementById('fuelAmountLiter').value='';
+    calcFuelPreview();
+    renderFuelPage();
+    renderDashboard();
+    renderKasbonTable();
+    updateFinancialReports();
+    showScanToast('Pertalite '+liters+' L · Rp '+total.toLocaleString('id-ID'));
+  }catch(e){
+    alert('Gagal transaksi BBM: '+e.message);
+  }finally{
+    if(btn){ btn.disabled=false; btn.style.opacity='1'; }
+  }
+}
+
