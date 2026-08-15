@@ -155,11 +155,30 @@ body{font-family:var(--font);background:radial-gradient(ellipse 80% 50% at 10% -
   }
 }
 @media(min-width:900px){
-  .pos-layout{grid-template-columns:1.2fr .8fr;height:calc(100vh - 120px);min-height:560px}
-  .pos-products,.pos-cart{height:100%;display:flex;flex-direction:column}
-  .pos-products .card-body,.pos-cart .cart-list{flex:1;overflow-y:auto}
-  .pos-cart-backdrop,.pos-mobile-bar,.cart-sheet-handle,.pos-cart-close-mobile{display:none!important}
-  .pos-cart{transform:none!important;position:relative!important;max-height:none}
+  .pos-layout{display:block;max-width:calc(100% - 400px)}
+  body.page-pos .pos-products{min-height:calc(100vh - 120px)}
+  .pos-products .card-body{max-height:calc(100vh - 200px);overflow-y:auto}
+  .pos-cart-backdrop{display:none!important}
+  .cart-sheet-handle,.pos-cart-close-mobile{display:none!important}
+  /* Keranjang fixed di kanan desktop */
+  body.page-pos .pos-cart{
+    position:fixed!important;
+    top:72px;right:16px;
+    width:min(380px,34vw);
+    height:calc(100vh - 88px);
+    max-height:none;
+    transform:none!important;
+    visibility:visible!important;
+    pointer-events:auto!important;
+    border-radius:18px!important;
+    border:1px solid var(--border)!important;
+    display:flex!important;
+    flex-direction:column;
+    z-index:40!important;
+    box-shadow:var(--shadow-md);
+  }
+  body:not(.page-pos) .pos-cart{display:none!important;visibility:hidden!important}
+  .pos-cart .cart-list{flex:1;overflow-y:auto}
 }
 
 .pos-mobile-bar-inner{
@@ -337,3 +356,21 @@ th,td{padding:12px 14px}tbody tr{border-top:1px solid var(--border)}tbody tr:hov
 .fuel-tank-meta .row span{opacity:.9}
 .fuel-tank-meta .row strong{font-size:13px}
 .fuel-capacity-hint{font-size:10px;opacity:.75;font-weight:600;margin-top:4px}
+
+/* Bar keranjang — selalu menempel viewport (bukan ikut scroll) */
+.pos-mobile-bar{
+  position:fixed !important;
+  left:0 !important;
+  right:0 !important;
+  z-index:70 !important;
+  bottom:calc(58px + env(safe-area-inset-bottom, 0px)) !important;
+  padding:0 12px 10px !important;
+  pointer-events:none;
+  display:none;
+}
+body.page-pos .pos-mobile-bar{display:block !important;}
+@media(min-width:900px){
+  body.page-pos .pos-mobile-bar{display:none !important;}
+}
+.pos-cart-backdrop{z-index:71 !important;}
+.pos-cart{z-index:72 !important;}

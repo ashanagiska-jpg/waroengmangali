@@ -4,7 +4,7 @@ let activeCategory='Semua', reportFilter='all', currentPage='dashboard';
 let html5QrCode=null, scanCallback=null, scannerTorchOn=false, lastReceiptData=null;
 
 /** GANTI URL INI setelah Deploy Web App baru di Apps Script */
-const WEB_APP_URL='https://script.google.com/macros/s/AKfycbxXMQ0zmVzz2uBTR8Nv0kK6Kxto_zM7XmqINYn4-o8FL_64HZVvzyqtSQM8ZLLk1TNFQA/exec';
+const WEB_APP_URL='https://script.google.com/macros/s/AKfycbyMv3eZAB2a5mIjKz65NdjgP9msRQ-DGpwmG-aLNf-JiWpD5sfz6C3mP53fQ_1i9eQIGg/exec';
 
 const PAGE_TITLES={dashboard:'Dashboard',pos:'Kasir (POS)',pertalite:'Pertalite (BBM)',stok:'Stok Barang',kasbon:'Catatan Kasbon',pengeluaran:'Pengeluaran',laporan:'Laporan Keuangan'};
 const FUEL_PRODUCT_ID='FUEL-PERTALITE';
@@ -28,9 +28,17 @@ async function apiGet(action){
   return res.json();
 }
 async function apiPost(action, payload){
-  const res=await fetch(WEB_APP_URL,{method:'POST',body:JSON.stringify({action,payload})});
+  // text/plain menghindari preflight CORS yang sering gagal di Apps Script
+  const res=await fetch(WEB_APP_URL,{
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify({action:action,payload:payload}),
+    redirect:'follow'
+  });
   if(!res.ok) throw new Error('HTTP '+res.status);
-  return res.json();
+  const text=await res.text();
+  try{ return JSON.parse(text); }
+  catch(e){ throw new Error('Respons bukan JSON. Deploy Web App ulang. Cuplikan: '+text.slice(0,120)); }
 }
 
 async function loadAllData(showOverlay=true){
@@ -721,6 +729,31 @@ function updateFinancialReports(){
 
 
 /* ===== PERTALITE / BBM ===== */
+
+/** Simpan BBM khusus ke Google Sheet (action saveFuel di Apps Script) */
+async function saveFuelToSheet(p){
+  const payload={
+    id: FUEL_PRODUCT_ID,
+    name: p.name || 'Pertalite',
+    barcode: FUEL_BARCODE,
+    category: 'BBM',
+    stock: Number(p.stock) || 0,
+    cost: Number(p.cost) || 0,
+    price: Number(p.price) || 13000,
+    minStock: p.minStock != null ? Number(p.minStock) : 10,
+    image: p.image || ''
+  };
+  // coba action khusus dulu
+  try{
+    const r=await apiPost('saveFuel', payload);
+    if(r && r.status==='success') return r;
+    // fallback
+    return await apiPost('saveProduct', payload);
+  }catch(e){
+    return await apiPost('saveProduct', payload);
+  }
+}
+
 async function ensureFuelProduct(saveIfNew){
   if(saveIfNew===undefined) saveIfNew=true;
   let p=products.find(x=>x.id===FUEL_PRODUCT_ID || (x.barcode&&x.barcode.toUpperCase()===FUEL_BARCODE));
@@ -744,7 +777,7 @@ async function ensureFuelProduct(saveIfNew){
   products.push(neu);
   if(saveIfNew){
     try{
-      await apiPost('saveProduct',{id:FUEL_PRODUCT_ID,name:neu.name,barcode:neu.barcode,category:neu.category,stock:neu.stock,cost:neu.cost,price:neu.price,minStock:neu.minStock,image:''});
+      await saveFuelToSheet(neu);
     }catch(e){ console.warn('Gagal init produk Pertalite', e); }
   }
   return neu;
@@ -847,12 +880,9 @@ async function saveFuelPrice(){
   }
   if(!price||price<=0){ alert('Harga per liter tidak valid'); return; }
   try{
-    const result=await apiPost('saveProduct',{
-      id:p.id, name:p.name, barcode:p.barcode||FUEL_BARCODE, category:'BBM',
-      stock:Number(p.stock)||0, cost:cost||0, price:price, minStock:p.minStock||10, image:p.image||''
-    });
-    if(result.status!=='success') throw new Error(result.message||'Gagal');
     p.price=price; p.cost=cost||0;
+    const result=await saveFuelToSheet(p);
+    if(!result || result.status!=='success') throw new Error((result&&result.message)||'Gagal simpan ke Sheet');
     renderFuelPage();
     showScanToast('Harga Pertalite disimpan: Rp '+price.toLocaleString('id-ID'));
     playScanBeep();
@@ -865,12 +895,9 @@ async function addFuelStock(){
   if(!add||add<=0){ alert('Masukkan jumlah liter'); return; }
   const newStock=(Number(p.stock)||0)+add;
   try{
-    const result=await apiPost('saveProduct',{
-      id:p.id, name:p.name, barcode:p.barcode||FUEL_BARCODE, category:'BBM',
-      stock:newStock, cost:p.cost, price:p.price, minStock:p.minStock||10, image:p.image||''
-    });
-    if(result.status!=='success') throw new Error(result.message||'Gagal');
     p.stock=newStock;
+    const result=await saveFuelToSheet(p);
+    if(!result || result.status!=='success') throw new Error((result&&result.message)||'Gagal simpan stok ke Sheet');
     document.getElementById('fuelAddStock').value='';
     renderFuelPage();
     showScanToast('+'+add+' L stok Pertalite');
@@ -885,12 +912,9 @@ async function setFuelStockManual(){
   const stock=parseFloat(v);
   if(isNaN(stock)||stock<0){ alert('Nilai tidak valid'); return; }
   try{
-    const result=await apiPost('saveProduct',{
-      id:p.id, name:p.name, barcode:p.barcode||FUEL_BARCODE, category:'BBM',
-      stock:stock, cost:p.cost, price:p.price, minStock:p.minStock||10, image:p.image||''
-    });
-    if(result.status!=='success') throw new Error(result.message||'Gagal');
     p.stock=stock;
+    const result=await saveFuelToSheet(p);
+    if(!result || result.status!=='success') throw new Error((result&&result.message)||'Gagal simpan stok ke Sheet');
     renderFuelPage();
     showScanToast('Stok diset: '+stock+' L');
   }catch(e){ alert(e.message); }
@@ -953,10 +977,7 @@ async function processFuelSale(){
     p.stock=Math.round(((Number(p.stock)||0)-liters)*1000)/1000;
     // Pastikan stok BBM tersimpan ke Google Sheet (cadangan jika pengurangan desimal gagal)
     try{
-      await apiPost('saveProduct',{
-        id:p.id, name:p.name, barcode:p.barcode||FUEL_BARCODE, category:'BBM',
-        stock:p.stock, cost:p.cost, price:p.price, minStock:p.minStock||10, image:p.image||''
-      });
+      await saveFuelToSheet(p);
     }catch(eStock){ console.warn('Sync stok BBM', eStock); }
     salesHistory.push(sale);
     if(kasbonEntry) kasbonList.push(kasbonEntry);
