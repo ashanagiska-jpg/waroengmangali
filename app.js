@@ -4,7 +4,7 @@ let activeCategory='Semua', reportFilter='all', currentPage='dashboard';
 let html5QrCode=null, scanCallback=null, scannerTorchOn=false, lastReceiptData=null;
 
 /** GANTI URL INI setelah Deploy Web App baru di Apps Script */
-const WEB_APP_URL='https://script.google.com/macros/s/AKfycbxVpG2wzDOuvKFY-j7vGvFF2ybeWsWpBEglrR9J9ec6cNpqHDyavZPRVM-VWWoY3OpPJg/exec';
+const WEB_APP_URL='https://script.google.com/macros/s/AKfycbzFM8WMnbnfKZcCHMNSRgn5LnSmf_loB8Raq-Ohw6P4bhkMr3-YMWsLowFJV7Ky8Bo3fg/exec';
 
 const PAGE_TITLES={dashboard:'Dashboard',pos:'Kasir (POS)',stok:'Stok Barang',kasbon:'Catatan Kasbon',pengeluaran:'Pengeluaran',laporan:'Laporan Keuangan'};
 const PLACEHOLDER_IMG='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect fill="#e8f6ee" width="120" height="120"/><text x="60" y="68" text-anchor="middle" font-size="40">🛒</text></svg>');
@@ -94,8 +94,9 @@ function switchTab(tabId){
   const nav=document.getElementById('nav-'+tabId); if(nav) nav.classList.add('active');
   const navm=document.getElementById('navm-'+tabId); if(navm) navm.classList.add('active');
   const titleEl=document.getElementById('pageTitle'); if(titleEl) titleEl.textContent=PAGE_TITLES[tabId]||tabId;
+  document.body.classList.toggle('page-pos', tabId==='pos');
+  if(tabId!=='pos') closeMobileCart();
   window.scrollTo({top:0,behavior:'instant'});
-  // Render konten sesuai tab agar tidak kosong saat dibuka
   if(tabId==='dashboard') renderDashboard();
   else if(tabId==='pos'){ renderCategoryFilters(); renderPosProducts(); renderCart(); }
   else if(tabId==='stok') renderStockTable();
@@ -357,12 +358,47 @@ function renderPosProducts(){
 function addToCart(productId){const prod=products.find(p=>p.id===productId);if(!prod||prod.stock<=0){alert('Stok habis!');return;}const existing=cart.find(i=>i.id===productId);if(existing){if(existing.qty+1>prod.stock){alert('Melebihi stok!');return;}existing.qty++;}else cart.push({...prod,qty:1});renderCart();}
 function updateCartQty(productId,delta){const item=cart.find(i=>i.id===productId);if(!item)return;const prod=products.find(p=>p.id===productId);if(delta>0&&item.qty+delta>prod.stock){alert('Stok tidak cukup!');return;}item.qty+=delta;if(item.qty<=0)cart=cart.filter(i=>i.id!==productId);renderCart();}
 function clearCart(){cart=[];renderCart();}
+function openMobileCart(){
+  const panel=document.getElementById('posCartPanel');
+  const bd=document.getElementById('posCartBackdrop');
+  if(panel) panel.classList.add('open');
+  if(bd) bd.classList.add('open');
+  lucide.createIcons();
+}
+function closeMobileCart(){
+  const panel=document.getElementById('posCartPanel');
+  const bd=document.getElementById('posCartBackdrop');
+  if(panel) panel.classList.remove('open');
+  if(bd) bd.classList.remove('open');
+}
+function updatePosMobileBar(total, count){
+  const c=document.getElementById('posBarCount');
+  const t=document.getElementById('posBarTotal');
+  const badge=document.getElementById('cartBadgeCount');
+  if(c) c.textContent=String(count);
+  if(t) t.textContent='Rp '+(total||0).toLocaleString('id-ID');
+  if(badge) badge.textContent=String(count);
+}
 function renderCart(){
   const list=document.getElementById('cartItemsList'); if(!list) return;
-  if(!cart.length){list.innerHTML='<div class="empty">Keranjang kosong</div>';document.getElementById('cartTotalText').textContent='Rp 0';calculateChange();return;}
+  const count=cart.reduce((s,i)=>s+i.qty,0);
+  if(!cart.length){
+    list.innerHTML='<div class="empty">Keranjang kosong</div>';
+    const totalEl=document.getElementById('cartTotalText');
+    if(totalEl) totalEl.textContent='Rp 0';
+    updatePosMobileBar(0,0);
+    calculateChange();
+    return;
+  }
   let total=0;
-  list.innerHTML=cart.map(item=>{const sub=item.price*item.qty;total+=sub;return `<div class="cart-item"><div class="thumb-sm"><img src="${productImage(item)}" alt="" data-orig="${productImage(item)}" onerror="onImgError(this)"></div><div class="info"><div class="name">${item.name}</div><div class="meta">Rp ${item.price.toLocaleString('id-ID')} × ${item.qty}</div><div class="sub">Rp ${sub.toLocaleString('id-ID')}</div></div><div class="qty-ctrl"><button onclick="updateCartQty('${item.id}',-1)">−</button><span>${item.qty}</span><button class="plus" onclick="updateCartQty('${item.id}',1)">+</button></div></div>`;}).join('');
-  document.getElementById('cartTotalText').textContent='Rp '+total.toLocaleString('id-ID'); calculateChange();
+  list.innerHTML=cart.map(item=>{
+    const sub=item.price*item.qty; total+=sub;
+    return `<div class="cart-item"><div class="thumb-sm"><img src="${productImage(item)}" alt="" data-orig="${productImage(item)}" onerror="onImgError(this)"></div><div class="info"><div class="name">${item.name}</div><div class="meta">Rp ${item.price.toLocaleString('id-ID')} × ${item.qty}</div><div class="sub">Rp ${sub.toLocaleString('id-ID')}</div></div><div class="qty-ctrl"><button onclick="updateCartQty('${item.id}',-1)">−</button><span>${item.qty}</span><button class="plus" onclick="updateCartQty('${item.id}',1)">+</button></div></div>`;
+  }).join('');
+  const totalEl=document.getElementById('cartTotalText');
+  if(totalEl) totalEl.textContent='Rp '+total.toLocaleString('id-ID');
+  updatePosMobileBar(total, count);
+  calculateChange();
 }
 function toggleKasbonInput(){const method=document.getElementById('posPaymentMethod').value;const k=document.getElementById('kasbonFormGroup');const c=document.getElementById('cashFormGroup');if(method==='Kasbon'){k.classList.remove('hidden');c.classList.add('hidden');}else if(method==='QRIS/Transfer'){k.classList.add('hidden');c.classList.add('hidden');}else{k.classList.add('hidden');c.classList.remove('hidden');}}
 function calculateChange(){const total=cart.reduce((s,i)=>s+i.price*i.qty,0);const cash=parseFloat(document.getElementById('cashAmountInput').value)||0;const change=cash-total;const el=document.getElementById('changeAmountText');if(change>=0){el.textContent='Rp '+change.toLocaleString('id-ID');el.className='val';}else{el.textContent='Kurang Rp '+Math.abs(change).toLocaleString('id-ID');el.className='val neg';}}
@@ -380,6 +416,7 @@ async function processTransaction(){
     const result=await apiPost('saveSale',{sale,items:cart.map(i=>({id:i.id,qty:i.qty})),kasbon:kasbonEntry});
     if(result.status!=='success') throw new Error(result.message||'Gagal');
     playCoinSound();
+    closeMobileCart();
     showReceipt(transId,timeStr,total,method,cart.slice());
     cart.forEach(i=>{const prod=products.find(p=>p.id===i.id);if(prod)prod.stock-=i.qty;});
     salesHistory.push(sale); if(kasbonEntry) kasbonList.push(kasbonEntry);

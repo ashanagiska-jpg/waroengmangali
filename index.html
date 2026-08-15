@@ -69,8 +69,18 @@
               </div>
               <div class="card-pad card-body" style="padding-top:10px"><div class="chip-row hide-scrollbar" id="categoryFilters"></div><div class="product-grid" id="posProductGrid"></div></div>
             </div>
-            <div class="card pos-cart">
-              <div class="card-head"><h2 style="display:flex;align-items:center;gap:8px"><i data-lucide="shopping-bag" style="width:16px;height:16px;color:var(--primary)"></i> Keranjang</h2><button onclick="clearCart()" class="btn btn-sm btn-danger">Kosongkan</button></div>
+
+            <!-- Desktop: keranjang samping | Mobile: sheet dari bawah -->
+            <div class="pos-cart-backdrop" id="posCartBackdrop" onclick="closeMobileCart()"></div>
+            <div class="card pos-cart" id="posCartPanel">
+              <div class="cart-sheet-handle" onclick="closeMobileCart()"><span></span></div>
+              <div class="card-head">
+                <h2 style="display:flex;align-items:center;gap:8px"><i data-lucide="shopping-bag" style="width:16px;height:16px;color:var(--primary)"></i> Keranjang <span id="cartBadgeCount" class="badge badge-success" style="margin-left:4px">0</span></h2>
+                <div class="flex gap-2">
+                  <button type="button" onclick="clearCart()" class="btn btn-sm btn-danger">Kosongkan</button>
+                  <button type="button" class="btn btn-sm btn-ghost pos-cart-close-mobile" onclick="closeMobileCart()"><i data-lucide="x" style="width:14px;height:14px"></i></button>
+                </div>
+              </div>
               <div class="card-pad cart-list" id="cartItemsList" style="padding-top:8px"><div class="empty">Keranjang kosong</div></div>
               <div class="cart-footer space-y-3">
                 <div class="total-line"><span class="lbl">Total Belanja</span><span class="val" id="cartTotalText">Rp 0</span></div>
@@ -80,6 +90,20 @@
                 <button id="processPaymentBtn" onclick="processTransaction()" class="btn btn-primary btn-block" style="padding:13px"><i data-lucide="check-circle" style="width:17px;height:17px"></i><span id="processPaymentBtnText">Simpan Transaksi</span></button>
               </div>
             </div>
+          </div>
+
+          <!-- Bar keranjang tetap di bawah (HP/tablet) -->
+          <div class="pos-mobile-bar" id="posMobileBar">
+            <button type="button" class="pos-mobile-bar-inner" onclick="openMobileCart()">
+              <div class="pos-bar-left">
+                <span class="pos-bar-icon"><i data-lucide="shopping-bag" style="width:18px;height:18px"></i><span class="pos-bar-count" id="posBarCount">0</span></span>
+                <div>
+                  <div class="pos-bar-label">Keranjang</div>
+                  <div class="pos-bar-total" id="posBarTotal">Rp 0</div>
+                </div>
+              </div>
+              <span class="pos-bar-cta">Bayar →</span>
+            </button>
           </div>
         </section>
 
