@@ -8,7 +8,7 @@ let activeCategory = 'Semua';
 let reportFilter = 'all';
 let currentPage = 'dashboard';
 
-const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxVpG2wzDOuvKFY-j7vGvFF2ybeWsWpBEglrR9J9ec6cNpqHDyavZPRVM-VWWoY3OpPJg/exec';
+const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbzFM8WMnbnfKZcCHMNSRgn5LnSmf_loB8Raq-Ohw6P4bhkMr3-YMWsLowFJV7Ky8Bo3fg/exec';
 
 const PAGE_TITLES = {
   dashboard: 'Dashboard',
@@ -73,9 +73,59 @@ function normalizeProduct(p) {
   };
 }
 
+/** Ambil fileId dari berbagai format URL Google Drive */
+function extractDriveFileId(url) {
+  if (!url) return '';
+  const s = String(url);
+  let m = s.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (m) return m[1];
+  m = s.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  if (m) return m[1];
+  m = s.match(/lh3\.googleusercontent\.com\/d\/([a-zA-Z0-9_-]+)/);
+  if (m) return m[1];
+  return '';
+}
+
+/**
+ * Normalisasi URL foto agar bisa tampil di <img>.
+ * URL lama (uc?export=view) sering gagal → diubah ke thumbnail.
+ */
+function normalizeImageUrl(url) {
+  if (!url) return '';
+  const u = String(url).trim();
+  if (!u) return '';
+  // data URI / http biasa non-Drive
+  if (u.startsWith('data:') || u.startsWith('blob:')) return u;
+  const fid = extractDriveFileId(u);
+  if (fid) {
+    return 'https://drive.google.com/thumbnail?id=' + fid + '&sz=w1000';
+  }
+  return u;
+}
+
 function productImage(p) {
-  const url = (p && (p.image || p.photo || p.gambar)) || '';
-  return url.trim() || PLACEHOLDER_IMG;
+  const raw = (p && (p.image || p.photo || p.gambar)) || '';
+  const url = normalizeImageUrl(raw);
+  return url || PLACEHOLDER_IMG;
+}
+
+/** onerror: coba URL cadangan Drive, baru fallback placeholder */
+function onImgError(img) {
+  const tried = img.getAttribute('data-tried') || '0';
+  const src = img.getAttribute('src') || '';
+  const fid = extractDriveFileId(src) || extractDriveFileId(img.getAttribute('data-orig') || '');
+  if (tried === '0' && fid) {
+    img.setAttribute('data-tried', '1');
+    img.src = 'https://lh3.googleusercontent.com/d/' + fid + '=w1000';
+    return;
+  }
+  if (tried === '1' && fid) {
+    img.setAttribute('data-tried', '2');
+    img.src = 'https://drive.google.com/uc?id=' + fid + '&export=download';
+    return;
+  }
+  img.onerror = null;
+  img.src = PLACEHOLDER_IMG;
 }
 
 async function refreshAllData(silent = false) {
@@ -376,7 +426,7 @@ function renderDashboard() {
     else {
       alertBox.innerHTML = lowStock.slice(0, 6).map(p => `
         <div class="alert-item warn">
-          <img src="${productImage(p)}" alt="" style="width:36px;height:36px;border-radius:8px;object-fit:cover" onerror="this.src='${PLACEHOLDER_IMG}'">
+          <img src="${productImage(p)}" alt="" style="width:36px;height:36px;border-radius:8px;object-fit:cover" data-orig="${productImage(p)}" onerror="onImgError(this)">
           <div style="flex:1;min-width:0">
             <div class="name">${p.name}</div>
             <div class="meta">${p.category} · Stok: ${p.stock}</div>
@@ -441,7 +491,7 @@ function renderPosProducts() {
     <div onclick="addToCart('${p.id}')" class="prod-card">
       ${p.stock <= (p.minStock || 5) ? '<span class="low-badge">TIPIS</span>' : ''}
       <div class="thumb">
-        <img src="${productImage(p)}" alt="" loading="lazy" onerror="this.src='${PLACEHOLDER_IMG}'">
+        <img src="${productImage(p)}" alt="" loading="lazy" data-orig="${productImage(p)}" onerror="onImgError(this)">
       </div>
       <div class="body">
         <span class="cat">${p.category}</span>
@@ -491,7 +541,7 @@ function renderCart() {
     total += sub;
     return `
       <div class="cart-item">
-        <div class="thumb-sm"><img src="${productImage(item)}" alt="" onerror="this.src='${PLACEHOLDER_IMG}'"></div>
+        <div class="thumb-sm"><img src="${productImage(item)}" alt="" data-orig="${productImage(item)}" onerror="onImgError(this)"></div>
         <div class="info">
           <div class="name">${item.name}</div>
           <div class="meta">Rp ${item.price.toLocaleString('id-ID')} × ${item.qty}</div>
@@ -651,7 +701,7 @@ function renderStockTable() {
   if (tbody) {
     tbody.innerHTML = filtered.map(p => `
       <tr>
-        <td><img class="stock-thumb" src="${productImage(p)}" alt="" onerror="this.src='${PLACEHOLDER_IMG}'"></td>
+        <td><img class="stock-thumb" src="${productImage(p)}" alt="" data-orig="${productImage(p)}" onerror="onImgError(this)"></td>
         <td class="font-mono">${p.id}</td>
         <td class="font-bold">${p.name}</td>
         <td><span class="badge badge-muted">${p.category}</span></td>
@@ -671,7 +721,7 @@ function renderStockTable() {
     cards.innerHTML = filtered.map(p => `
       <div class="m-item">
         <div class="flex items-center gap-2" style="gap:12px">
-          <img src="${productImage(p)}" alt="" style="width:48px;height:48px;border-radius:12px;object-fit:cover" onerror="this.src='${PLACEHOLDER_IMG}'">
+          <img src="${productImage(p)}" alt="" style="width:48px;height:48px;border-radius:12px;object-fit:cover" data-orig="${productImage(p)}" onerror="onImgError(this)">
           <div style="flex:1;min-width:0">
             <div class="font-bold" style="font-size:14px">${p.name}</div>
             <span class="badge badge-muted">${p.category}</span>
@@ -697,7 +747,8 @@ function setProductImagePreview(url) {
     if (clearBtn) clearBtn.classList.add('hidden');
     return;
   }
-  wrap.innerHTML = '<img src="' + String(url).replace(/"/g, '') + '" alt="Preview" onerror="this.parentElement.innerHTML=\'<div class=ph>Gagal memuat foto</div>\'">';
+  const safe = normalizeImageUrl(url).replace(/"/g, '');
+  wrap.innerHTML = '<img src="' + safe + '" alt="Preview" data-orig="' + safe + '" onerror="onImgError(this)">';
   if (clearBtn) clearBtn.classList.remove('hidden');
 }
 
@@ -780,8 +831,13 @@ async function onProductImageSelected(event) {
       throw new Error((result && result.message) || 'Upload gagal. Pastikan fungsi uploadProductImage ada di Apps Script.');
     }
 
-    document.getElementById('prodImage').value = result.url;
-    setProductImagePreview(result.url);
+    // Simpan URL yang browser-friendly (thumbnail). fileId ikut jika ada.
+    var finalUrl = normalizeImageUrl(result.url);
+    if (result.fileId) {
+      finalUrl = 'https://drive.google.com/thumbnail?id=' + result.fileId + '&sz=w1000';
+    }
+    document.getElementById('prodImage').value = finalUrl;
+    setProductImagePreview(finalUrl);
     setImageStatus('Foto berhasil diunggah ✓');
   } catch (err) {
     console.error(err);
