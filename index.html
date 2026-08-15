@@ -251,14 +251,14 @@
     <div class="cart-sheet-handle" onclick="closeMobileCart()"><span></span></div>
     <div class="card-head">
       <h2 style="display:flex;align-items:center;gap:8px"><i data-lucide="shopping-bag" style="width:16px;height:16px;color:var(--primary)"></i> Keranjang <span id="cartBadgeCount" class="badge badge-success" style="margin-left:4px">0</span></h2>
-      <div class="flex gap-2">
+      <div class="flex gap-2 items-center">
+        <button type="button" onclick="openManualItemModal()" class="btn btn-sm btn-ghost" title="Sayuran / item manual" style="padding:6px 8px;border-color:#bbf7d0;color:var(--primary-dark)"><i data-lucide="leaf" style="width:14px;height:14px"></i></button>
         <button type="button" onclick="clearCart()" class="btn btn-sm btn-danger">Kosongkan</button>
         <button type="button" class="btn btn-sm btn-ghost pos-cart-close-mobile" onclick="closeMobileCart()"><i data-lucide="x" style="width:14px;height:14px"></i></button>
       </div>
     </div>
     <div class="card-pad cart-list" id="cartItemsList" style="padding-top:8px"><div class="empty">Keranjang kosong</div></div>
     <div class="cart-footer space-y-3">
-      <button type="button" onclick="openManualItemModal()" class="btn btn-ghost btn-block btn-sm" style="margin-bottom:8px;border-style:dashed"><i data-lucide="leaf" style="width:14px;height:14px"></i> + Sayuran / Item Manual</button>
       <div class="total-line"><span class="lbl">Total Belanja</span><span class="val" id="cartTotalText">Rp 0</span></div>
       <div><label class="label">Metode Pembayaran</label><select id="posPaymentMethod" onchange="toggleKasbonInput()" class="select"><option value="Tunai">Tunai</option><option value="QRIS/Transfer">QRIS / Transfer</option><option value="Kasbon">Kasbon (Hutang)</option></select></div>
       <div id="kasbonFormGroup" class="hidden"><label class="label">Nama Pelanggan</label><input type="text" id="kasbonCustomerName" placeholder="Pak RT" class="input"></div>
