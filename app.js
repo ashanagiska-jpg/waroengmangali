@@ -500,6 +500,185 @@ function renderDashboard(){
   if(recent){const last=[...salesHistory].slice(-6).reverse();if(!last.length)recent.innerHTML='<div class="empty">Belum ada transaksi</div>';else recent.innerHTML=last.map(s=>`<div class="alert-item"><div style="flex:1;min-width:0"><div class="name font-mono">${s.id}</div><div class="meta">${s.time} · ${s.method}</div></div><div class="font-bold text-accent" style="font-size:13px">Rp ${s.total.toLocaleString('id-ID')}</div></div>`).join('');}
 }
 
+
+/* ===== DASHBOARD DETAIL ===== */
+function rp(n){ return 'Rp '+Math.round(n||0).toLocaleString('id-ID'); }
+
+function openDashDetail(key){
+  const modal=document.getElementById('dashDetailModal');
+  if(!modal) return;
+  const data=buildDashDetail(key);
+  if(!data) return;
+
+  const hero=document.getElementById('dashDetailHero');
+  hero.className='dash-detail-hero '+(data.theme||'');
+  document.getElementById('dashDetailIcon').innerHTML=data.iconHtml||'';
+  document.getElementById('dashDetailTitle').textContent=data.title||'';
+  document.getElementById('dashDetailBig').textContent=data.big||'—';
+  document.getElementById('dashDetailSub').textContent=data.sub||'';
+  document.getElementById('dashDetailBody').innerHTML=data.bodyHtml||'';
+  document.getElementById('dashDetailActions').innerHTML=data.actionsHtml||'';
+
+  modal.classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function closeDashDetail(){
+  const modal=document.getElementById('dashDetailModal');
+  if(modal) modal.classList.add('hidden');
+}
+
+function buildDashDetail(key){
+  const todaySales=filterSalesToday();
+  const todayOmset=todaySales.reduce((s,x)=>s+(x.total||0),0);
+  const todayHpp=todaySales.reduce((s,x)=>s+(x.costTotal||0),0);
+  const todayExp=filterExpensesToday().reduce((s,e)=>s+(e.amount||0),0);
+  const todayProfit=todayOmset-todayHpp-todayExp;
+  const unpaid=kasbonList.filter(k=>k.status==='Belum Lunas');
+  const unpaidTotal=unpaid.reduce((s,k)=>s+(k.total||0),0);
+  const lowStock=products.filter(p=>p.stock<=(p.minStock||5) && p.id!==FUEL_PRODUCT_ID && p.category!=='BBM')
+    .sort((a,b)=>a.stock-b.stock);
+  const allOmset=salesHistory.reduce((s,x)=>s+(x.total||0),0);
+  const allHpp=salesHistory.reduce((s,x)=>s+(x.costTotal||0),0);
+  const allExp=expenses.reduce((s,e)=>s+(e.amount||0),0);
+  const allProfit=allOmset-allHpp-allExp;
+  const avgTicket=todaySales.length?Math.round(todayOmset/todaySales.length):0;
+  const stockValue=products.reduce((s,p)=>s+(p.cost||0)*(p.stock||0),0);
+  const sellValue=products.reduce((s,p)=>s+(p.price||0)*(p.stock||0),0);
+
+  const icon=function(name){return '<i data-lucide="'+name+'" style="width:24px;height:24px"></i>';};
+
+  if(key==='omsetToday'){
+    const rows=todaySales.slice().reverse().slice(0,8).map(function(s){
+      return '<div class="dd-list-item"><div style="flex:1;min-width:0"><div class="font-mono" style="font-size:11px;color:var(--muted)">'+s.id+'</div><div style="font-size:12px">'+s.time+' · '+s.method+'</div></div><div class="font-bold text-accent">'+rp(s.total)+'</div></div>';
+    }).join('')||'<div class="dd-empty">Belum ada transaksi hari ini</div>';
+    const pays=paymentBreakdown(todaySales);
+    const payRows=pays.length?pays.map(function(p){return '<div class="dd-row"><span class="lbl">'+p[0]+'</span><span class="val">'+rp(p[1])+'</span></div>';}).join(''):'<div class="dd-empty">—</div>';
+    return {
+      theme:'', title:'Omset Hari Ini', big:rp(todayOmset), sub:todaySales.length+' transaksi tercatat hari ini',
+      iconHtml:icon('trending-up'),
+      bodyHtml:'<div class="dd-section">Ringkasan</div>'+
+        '<div class="dd-row"><span class="lbl">Jumlah transaksi</span><span class="val">'+todaySales.length+'</span></div>'+
+        '<div class="dd-row"><span class="lbl">HPP hari ini</span><span class="val">'+rp(todayHpp)+'</span></div>'+
+        '<div class="dd-row"><span class="lbl">Margin kotor</span><span class="val">'+(todayOmset?Math.round(((todayOmset-todayHpp)/todayOmset)*100):0)+'%</span></div>'+
+        '<div class="dd-section">Per metode bayar</div>'+payRows+
+        '<div class="dd-section">Transaksi terbaru</div>'+rows,
+      actionsHtml:'<button class="btn btn-primary btn-sm" onclick="closeDashDetail();switchTab(\'laporan\')">Lihat Laporan</button><button class="btn btn-ghost btn-sm" onclick="closeDashDetail();switchTab(\'pos\')">Ke Kasir</button>'
+    };
+  }
+
+  if(key==='profitToday'){
+    return {
+      theme:'amber', title:'Laba Estimasi Hari Ini', big:rp(todayProfit),
+      sub:'Dihitung dari omset − HPP − pengeluaran hari ini',
+      iconHtml:icon('coins'),
+      bodyHtml:'<div class="dd-section">Komponen perhitungan</div>'+
+        '<div class="dd-row"><span class="lbl">Omset</span><span class="val" style="color:var(--primary)">'+rp(todayOmset)+'</span></div>'+
+        '<div class="dd-row"><span class="lbl">HPP (modal barang)</span><span class="val">− '+rp(todayHpp)+'</span></div>'+
+        '<div class="dd-row"><span class="lbl">Pengeluaran hari ini</span><span class="val">− '+rp(todayExp)+'</span></div>'+
+        '<div class="dd-row"><span class="lbl">Laba estimasi</span><span class="val font-bold">'+rp(todayProfit)+'</span></div>'+
+        '<p style="font-size:12px;color:var(--muted);margin-top:12px;font-weight:600">Ini estimasi. Laba aktual bisa berbeda jika ada modal yang belum tercatat di HPP.</p>',
+      actionsHtml:'<button class="btn btn-primary btn-sm" onclick="closeDashDetail();switchTab(\'laporan\')">Laporan</button><button class="btn btn-ghost btn-sm" onclick="closeDashDetail();switchTab(\'pengeluaran\')">Pengeluaran</button>'
+    };
+  }
+
+  if(key==='avgTicket'){
+    const max=todaySales.length?Math.max.apply(null,todaySales.map(function(s){return s.total||0;})):0;
+    const min=todaySales.length?Math.min.apply(null,todaySales.map(function(s){return s.total||0;})):0;
+    return {
+      theme:'sky', title:'Rata-rata / Transaksi', big:rp(avgTicket),
+      sub:'Total omset hari ini dibagi jumlah transaksi',
+      iconHtml:icon('receipt'),
+      bodyHtml:'<div class="dd-section">Statistik hari ini</div>'+
+        '<div class="dd-row"><span class="lbl">Transaksi</span><span class="val">'+todaySales.length+'</span></div>'+
+        '<div class="dd-row"><span class="lbl">Omset</span><span class="val">'+rp(todayOmset)+'</span></div>'+
+        '<div class="dd-row"><span class="lbl">Rata-rata (ticket)</span><span class="val">'+rp(avgTicket)+'</span></div>'+
+        '<div class="dd-row"><span class="lbl">Transaksi terbesar</span><span class="val">'+rp(max)+'</span></div>'+
+        '<div class="dd-row"><span class="lbl">Transaksi terkecil</span><span class="val">'+rp(min)+'</span></div>',
+      actionsHtml:'<button class="btn btn-primary btn-sm" onclick="closeDashDetail();switchTab(\'pos\')">Kasir</button>'
+    };
+  }
+
+  if(key==='kasbon'){
+    const list=unpaid.slice(0,10).map(function(k){
+      return '<div class="dd-list-item"><div style="flex:1;min-width:0"><div>'+k.customer+'</div><div style="font-size:11px;color:var(--muted)">'+k.time+'</div></div><div class="font-bold text-danger">'+rp(k.total)+'</div></div>';
+    }).join('')||'<div class="dd-empty">Tidak ada kasbon aktif 🎉</div>';
+    return {
+      theme:'rose', title:'Kasbon Belum Lunas', big:rp(unpaidTotal),
+      sub:unpaid.length+' pelanggan masih berhutang',
+      iconHtml:icon('hand-coins'),
+      bodyHtml:'<div class="dd-section">Daftar kasbon</div>'+list,
+      actionsHtml:'<button class="btn btn-primary btn-sm" onclick="closeDashDetail();switchTab(\'kasbon\')">Kelola Kasbon</button>'
+    };
+  }
+
+  if(key==='lowStock'){
+    const list=lowStock.slice(0,12).map(function(p){
+      return '<div class="dd-list-item"><img src="'+productImage(p)+'" alt="" style="width:36px;height:36px;border-radius:8px;object-fit:cover" onerror="onImgError(this)"><div style="flex:1;min-width:0"><div>'+p.name+'</div><div style="font-size:11px;color:var(--muted)">'+p.category+'</div></div><span class="dd-pill">Stok '+p.stock+'</span></div>';
+    }).join('')||'<div class="dd-empty">Semua stok aman ✓</div>';
+    return {
+      theme:'violet', title:'Stok Menipis', big:lowStock.length+' item',
+      sub:products.length+' produk terdaftar di sistem',
+      iconHtml:icon('alert-triangle'),
+      bodyHtml:'<div class="dd-section">Perlu restok</div>'+list,
+      actionsHtml:'<button class="btn btn-primary btn-sm" onclick="closeDashDetail();switchTab(\'stok\')">Ke Stok</button>'
+    };
+  }
+
+  if(key==='omsetAll'){
+    const top=computeTopProducts(salesHistory,6);
+    const topHtml=top.length?top.map(function(t){return '<div class="dd-row"><span class="lbl">'+t[0]+'</span><span class="val">'+t[1]+' terjual</span></div>';}).join(''):'<div class="dd-empty">Belum ada data</div>';
+    return {
+      theme:'', title:'Total Omset (Semua)', big:rp(allOmset),
+      sub:salesHistory.length+' transaksi sepanjang waktu',
+      iconHtml:icon('line-chart'),
+      bodyHtml:'<div class="dd-section">Ringkasan</div>'+
+        '<div class="dd-row"><span class="lbl">Total transaksi</span><span class="val">'+salesHistory.length+'</span></div>'+
+        '<div class="dd-row"><span class="lbl">Total HPP</span><span class="val">'+rp(allHpp)+'</span></div>'+
+        '<div class="dd-section">Produk terlaris</div>'+topHtml,
+      actionsHtml:'<button class="btn btn-primary btn-sm" onclick="closeDashDetail();switchTab(\'laporan\')">Laporan Lengkap</button>'
+    };
+  }
+
+  if(key==='profitAll'){
+    return {
+      theme:'amber', title:'Laba Bersih (Semua)', big:rp(allProfit),
+      sub:'Akumulasi omset − HPP − seluruh pengeluaran',
+      iconHtml:icon('piggy-bank'),
+      bodyHtml:'<div class="dd-section">Komponen</div>'+
+        '<div class="dd-row"><span class="lbl">Total omset</span><span class="val" style="color:var(--primary)">'+rp(allOmset)+'</span></div>'+
+        '<div class="dd-row"><span class="lbl">Total HPP</span><span class="val">− '+rp(allHpp)+'</span></div>'+
+        '<div class="dd-row"><span class="lbl">Total pengeluaran</span><span class="val">− '+rp(allExp)+'</span></div>'+
+        '<div class="dd-row"><span class="lbl">Laba bersih</span><span class="val font-bold">'+rp(allProfit)+'</span></div>'+
+        '<div class="dd-row"><span class="lbl">Margin kotor</span><span class="val">'+(allOmset?Math.round(((allOmset-allHpp)/allOmset)*100):0)+'%</span></div>',
+      actionsHtml:'<button class="btn btn-primary btn-sm" onclick="closeDashDetail();switchTab(\'laporan\')">Laporan</button>'
+    };
+  }
+
+  if(key==='stockValue'){
+    const byCat={};
+    products.forEach(function(p){
+      if(p.id===FUEL_PRODUCT_ID||p.category==='BBM') return;
+      const c=p.category||'Lainnya';
+      byCat[c]=(byCat[c]||0)+((p.cost||0)*(p.stock||0));
+    });
+    const catRows=Object.entries(byCat).sort(function(a,b){return b[1]-a[1];}).slice(0,8)
+      .map(function(c){return '<div class="dd-row"><span class="lbl">'+c[0]+'</span><span class="val">'+rp(c[1])+'</span></div>';}).join('')||'<div class="dd-empty">—</div>';
+    return {
+      theme:'sky', title:'Nilai Stok (Modal)', big:rp(stockValue),
+      sub:'Potensi jual: '+rp(sellValue)+' · selisih ± '+rp(sellValue-stockValue),
+      iconHtml:icon('warehouse'),
+      bodyHtml:'<div class="dd-section">Nilai modal per kategori</div>'+catRows+
+        '<div class="dd-section">Ringkas</div>'+
+        '<div class="dd-row"><span class="lbl">Modal di rak</span><span class="val">'+rp(stockValue)+'</span></div>'+
+        '<div class="dd-row"><span class="lbl">Jika terjual semua</span><span class="val">'+rp(sellValue)+'</span></div>',
+      actionsHtml:'<button class="btn btn-primary btn-sm" onclick="closeDashDetail();switchTab(\'stok\')">Kelola Stok</button>'
+    };
+  }
+
+  return null;
+}
+
 /* ===== POS ===== */
 function renderCategoryFilters(){const categories=['Semua',...new Set(products.map(p=>p.category))];const c=document.getElementById('categoryFilters');if(!c)return;c.innerHTML=categories.map(cat=>`<button onclick="filterCategory('${cat}')" class="chip ${activeCategory===cat?'active':''}">${cat}</button>`).join('');}
 function filterCategory(cat){activeCategory=cat;renderCategoryFilters();renderPosProducts();}
