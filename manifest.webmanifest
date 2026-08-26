@@ -1,0 +1,26 @@
+{
+  "name": "Warung Mang Ali",
+  "short_name": "WarungMA",
+  "description": "Kasir & Inventaris offline-ready — sinkron ke Google Sheet",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f3faf6",
+  "theme_color": "#16a34a",
+  "lang": "id",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect fill='%2316a34a' width='192' height='192' rx='40'/%3E%3Ctext y='128' x='96' text-anchor='middle' font-size='100'%3E🛒%3C/text%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect fill='%2316a34a' width='512' height='512' rx='96'/%3E%3Ctext y='340' x='256' text-anchor='middle' font-size='280'%3E🛒%3C/text%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

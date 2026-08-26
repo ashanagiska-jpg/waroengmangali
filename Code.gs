@@ -259,8 +259,16 @@ function saveSale(payload) {
   var items = payload.items || [];
   var kasbon = payload.kasbon || null;
   var salesSh = getSheet_(SHEET.SALES, HEAD.SALES);
+  var saleId = String(sale.id || ('TRX-' + new Date().getTime().toString().slice(-6)));
+  // Idempotent: jika ID sudah ada, anggap sukses (hindari dobel saat retry offline)
+  var existing = salesSh.getDataRange().getValues();
+  for (var ei = 1; ei < existing.length; ei++) {
+    if (String(existing[ei][0]) === saleId) {
+      return { status: 'duplicate', id: saleId, message: 'Transaksi sudah tercatat' };
+    }
+  }
   salesSh.appendRow([
-    String(sale.id || ('TRX-' + new Date().getTime().toString().slice(-6))),
+    saleId,
     String(sale.time || ''), String(sale.itemsSummary || ''),
     Number(sale.total) || 0, Number(sale.costTotal) || 0, String(sale.method || '')
   ]);
@@ -282,7 +290,7 @@ function saveSale(payload) {
     }
   }
   if (kasbon && kasbon.customer) saveKasbon(kasbon);
-  return { status: 'success', id: sale.id };
+  return { status: 'success', id: saleId };
 }
 
 function saveKasbon(payload) {

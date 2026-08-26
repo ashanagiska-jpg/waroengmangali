@@ -17,9 +17,30 @@ window.onload=async function(){
   if(window.self!==window.top){const b=document.getElementById('embedBanner');b.classList.remove('hidden');b.style.display='flex';}
   openDoaModal(); startLiveClock();
   initHardwareScanner();
+  // Offline core
+  if(window.OfflineCore){
+    OfflineCore.initListeners();
+    OfflineCore.refreshPendingCount();
+  }
+  // Register Service Worker (PWA offline shell)
+  if('serviceWorker' in navigator){
+    try{
+      const reg=await navigator.serviceWorker.register('./sw.js');
+      console.log('[SW] registered', reg.scope);
+      navigator.serviceWorker.addEventListener('message', function(ev){
+        if(ev.data && ev.data.type==='WARUNG_SYNC' && window.OfflineCore){
+          OfflineCore.processSyncQueue(true);
+        }
+      });
+    }catch(e){ console.warn('[SW] register gagal', e); }
+  }
   await loadAllData();
   renderCurrentPage();
   switchTab('dashboard');
+  // coba flush antrian jika online
+  if(window.OfflineCore && OfflineCore.isOnline()){
+    OfflineCore.processSyncQueue(false);
+  }
 };
 
 async function apiGet(action){
@@ -27,7 +48,8 @@ async function apiGet(action){
   if(!res.ok) throw new Error('HTTP '+res.status);
   return res.json();
 }
-async function apiPost(action, payload){
+/** Raw post — selalu ke jaringan (dipakai OfflineCore & sync) */
+async function apiPostRaw(action, payload){
   // text/plain menghindari preflight CORS yang sering gagal di Apps Script
   const res=await fetch(WEB_APP_URL,{
     method:'POST',
@@ -40,6 +62,13 @@ async function apiPost(action, payload){
   try{ return JSON.parse(text); }
   catch(e){ throw new Error('Respons bukan JSON. Deploy Web App ulang. Cuplikan: '+text.slice(0,120)); }
 }
+/** Offline-aware post: online → server; offline → antrian IndexedDB */
+async function apiPost(action, payload){
+  if(window.OfflineCore && typeof OfflineCore.apiPostOffline==='function'){
+    return OfflineCore.apiPostOffline(action, payload);
+  }
+  return apiPostRaw(action, payload);
+}
 
 async function loadAllData(showOverlay=true){
   const overlay=document.getElementById('loadingOverlay');
@@ -51,9 +80,55 @@ async function loadAllData(showOverlay=true){
     salesHistory=data.sales||[];
     kasbonList=data.kasbon||[];
     expenses=data.expenses||[];
+    // cache lokal untuk mode offline
+    if(window.OfflineCore){
+      try{
+        await OfflineCore.cacheAllData({
+          products:products,
+          sales:salesHistory,
+          kasbon:kasbonList,
+          expenses:expenses
+        });
+      }catch(e){ console.warn('cache write', e); }
+    }
   }catch(err){
-    alert('Gagal memuat data dari Google Sheet.\n\n'+err.message+'\n\nCek WEB_APP_URL & deploy Apps Script.');
+    console.warn('Load online gagal, coba cache lokal', err);
+    // Fallback IndexedDB
+    if(window.OfflineCore){
+      try{
+        const cache=await OfflineCore.loadCache();
+        products=(cache.products||[]).map(normalizeProduct);
+        salesHistory=cache.sales||[];
+        kasbonList=cache.kasbon||[];
+        expenses=cache.expenses||[];
+        if(products.length===0){
+          alert('Gagal memuat data dari Google Sheet dan tidak ada cache lokal.\n\n'+err.message+'\n\nButuh internet minimal sekali untuk sinkron awal.\nCek WEB_APP_URL & deploy Apps Script.');
+        }else{
+          if(typeof showScanToast==='function'){
+            showScanToast('Mode offline — memakai data tersimpan di perangkat');
+          }
+          if(OfflineCore.refreshPendingCount) OfflineCore.refreshPendingCount();
+        }
+      }catch(e2){
+        alert('Gagal memuat data.\n\n'+err.message);
+      }
+    }else{
+      alert('Gagal memuat data dari Google Sheet.\n\n'+err.message+'\n\nCek WEB_APP_URL & deploy Apps Script.');
+    }
   }finally{ if(showOverlay) overlay.classList.add('hidden'); }
+}
+
+/** Simpan ulang cache setelah mutasi lokal (stok, penjualan, dll) */
+async function persistLocalCache(){
+  if(!window.OfflineCore) return;
+  try{
+    await OfflineCore.cacheAllData({
+      products:products,
+      sales:salesHistory,
+      kasbon:kasbonList,
+      expenses:expenses
+    });
+  }catch(e){ console.warn('persistLocalCache', e); }
 }
 function normalizeProduct(p){return{...p,image:p.image||p.photo||p.gambar||'',minStock:p.minStock!=null?p.minStock:5,unit:p.unit||'pcs',looseStock:!!(p.looseStock===true||p.looseStock===1||p.looseStock==='1'||p.category==='Sayuran')};}
 
@@ -89,6 +164,10 @@ function onImgError(img){
 async function refreshAllData(silent=false){
   const btn=document.getElementById('refreshBtn');
   if(btn&&!silent) btn.classList.add('animate-spin');
+  // flush queue dulu jika online
+  if(window.OfflineCore && OfflineCore.isOnline()){
+    try{ await OfflineCore.processSyncQueue(false); }catch(e){}
+  }
   await loadAllData(!silent);
   renderCurrentPage();
   if(btn) btn.classList.remove('animate-spin');
@@ -893,8 +972,10 @@ async function processTransaction(){
     showReceipt(transId,timeStr,total,method,cart.slice());
     cart.forEach(i=>{if(i.isManual)return;const prod=products.find(p=>p.id===i.id);if(prod)prod.stock-=i.qty;});
     salesHistory.push(sale); if(kasbonEntry) kasbonList.push(kasbonEntry);
+    await persistLocalCache();
     renderPosProducts();renderStockTable();renderKasbonTable();updateFinancialReports();renderDashboard();
     clearCart(); document.getElementById('cashAmountInput').value=''; document.getElementById('kasbonCustomerName').value='';
+    if(result.offline && typeof showScanToast==='function') showScanToast('Transaksi tersimpan offline — akan upload otomatis');
   }catch(err){alert('Gagal simpan transaksi: '+err.message);}
   finally{if(payBtn){payBtn.disabled=false;document.getElementById('processPaymentBtnText').textContent='Simpan Transaksi';}}
 }
@@ -998,20 +1079,29 @@ async function saveProduct(e){
     const result=await apiPost('saveProduct',{id:id||null,name,barcode,category,stock,cost,price,minStock:5,image,unit,looseStock});
     if(result.status!=='success') throw new Error(result.message||'Gagal');
     closeProductModal();
-    if(id){const prod=products.find(p=>p.id===id);if(prod)Object.assign(prod,{name,barcode,category,stock,cost,price,minStock:5,image,unit,looseStock});renderStockTable();renderPosProducts();renderCategoryFilters();renderDashboard();}
-    else await refreshAllData(true);
+    if(id){const prod=products.find(p=>p.id===id);if(prod)Object.assign(prod,{name,barcode,category,stock,cost,price,minStock:5,image,unit,looseStock});await persistLocalCache();renderStockTable();renderPosProducts();renderCategoryFilters();renderDashboard();}
+    else {
+      // produk baru: jika offline, tambah lokal dulu
+      if(result.offline){
+        const newId=result.id||('PRD-'+Date.now().toString().slice(-8));
+        products.push(normalizeProduct({id:newId,name,barcode,category,stock,cost,price,minStock:5,image,unit,looseStock}));
+        await persistLocalCache();
+        renderStockTable();renderPosProducts();renderCategoryFilters();renderDashboard();
+      } else await refreshAllData(true);
+    }
+    if(result.offline && typeof showScanToast==='function') showScanToast('Disimpan offline — akan upload otomatis');
   }catch(err){alert('Gagal simpan: '+err.message);}
   finally{if(submitBtn){submitBtn.disabled=false;submitBtn.textContent='Simpan Barang';}}
 }
 function editProduct(id){openProductModal(id);}
-async function deleteProduct(id){if(!confirm('Hapus barang ini?'))return;try{const result=await apiPost('deleteProduct',{id});if(result.status!=='success')throw new Error(result.message||'Gagal');products=products.filter(p=>p.id!==id);renderStockTable();renderPosProducts();renderCategoryFilters();renderDashboard();}catch(err){alert(err.message);}}
+async function deleteProduct(id){if(!confirm('Hapus barang ini?'))return;try{const result=await apiPost('deleteProduct',{id});if(result.status!=='success')throw new Error(result.message||'Gagal');products=products.filter(p=>p.id!==id);await persistLocalCache();renderStockTable();renderPosProducts();renderCategoryFilters();renderDashboard();}catch(err){alert(err.message);}}
 function openRestockModal(id){const p=products.find(x=>x.id===id);if(!p)return;document.getElementById('restockId').value=id;document.getElementById('restockName').textContent=p.name;document.getElementById('restockCurrent').textContent=p.stock;document.getElementById('restockQty').value='';document.getElementById('restockModal').classList.remove('hidden');lucide.createIcons();}
 function closeRestockModal(){document.getElementById('restockModal').classList.add('hidden');}
 async function saveRestock(e){
   e.preventDefault(); const id=document.getElementById('restockId').value; const addQty=parseInt(document.getElementById('restockQty').value);
   if(!addQty||addQty<1){alert('Masukkan jumlah');return;} const prod=products.find(p=>p.id===id); if(!prod)return;
   const newStock=prod.stock+addQty; const submitBtn=e.target.querySelector('button[type="submit"]'); if(submitBtn){submitBtn.disabled=true;submitBtn.textContent='Menyimpan...';}
-  try{const result=await apiPost('saveProduct',{id:prod.id,name:prod.name,barcode:prod.barcode||'',category:prod.category,stock:newStock,cost:prod.cost,price:prod.price,minStock:prod.minStock||5,image:prod.image||''});if(result.status!=='success')throw new Error(result.message||'Gagal');prod.stock=newStock;closeRestockModal();renderStockTable();renderPosProducts();renderDashboard();}catch(err){alert(err.message);}finally{if(submitBtn){submitBtn.disabled=false;submitBtn.textContent='Tambah Stok';}}
+  try{const result=await apiPost('saveProduct',{id:prod.id,name:prod.name,barcode:prod.barcode||'',category:prod.category,stock:newStock,cost:prod.cost,price:prod.price,minStock:prod.minStock||5,image:prod.image||''});if(result.status!=='success')throw new Error(result.message||'Gagal');prod.stock=newStock;await persistLocalCache();closeRestockModal();renderStockTable();renderPosProducts();renderDashboard();}catch(err){alert(err.message);}finally{if(submitBtn){submitBtn.disabled=false;submitBtn.textContent='Tambah Stok';}}
 }
 
 /* ===== KASBON / EXPENSE / LAPORAN ===== */
@@ -1022,7 +1112,7 @@ async function saveKasbonManual(e){
   const now=new Date(); const timeStr=now.toLocaleDateString('id-ID')+' '+now.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
   const entry={id:'KSB-'+Date.now().toString().slice(-5),customer:note?`${name} (${note})`:name,total,time:timeStr,status:'Belum Lunas'};
   const submitBtn=e.target.querySelector('button[type="submit"]'); if(submitBtn){submitBtn.disabled=true;submitBtn.textContent='Menyimpan...';}
-  try{const result=await apiPost('saveKasbon',entry);if(result.status!=='success')throw new Error(result.message||'Gagal');kasbonList.push(entry);renderKasbonTable();renderDashboard();closeKasbonModal();}catch(err){alert(err.message);}finally{if(submitBtn){submitBtn.disabled=false;submitBtn.textContent='Simpan';}}
+  try{const result=await apiPost('saveKasbon',entry);if(result.status!=='success')throw new Error(result.message||'Gagal');kasbonList.push(entry);await persistLocalCache();renderKasbonTable();renderDashboard();closeKasbonModal();}catch(err){alert(err.message);}finally{if(submitBtn){submitBtn.disabled=false;submitBtn.textContent='Simpan';}}
 }
 function renderKasbonTable(){
   const search=(document.getElementById('kasbonSearch')?.value||'').toLowerCase();
@@ -1034,7 +1124,7 @@ function renderKasbonTable(){
   const cards=document.getElementById('kasbonCardsMobile');
   if(cards) cards.innerHTML=filtered.map(k=>`<div class="m-item"><div class="flex justify-between items-center gap-2"><div><div class="font-bold" style="font-size:14px">${k.customer}</div><div class="text-muted" style="font-size:12px">${k.time}</div></div><span class="badge ${k.status==='Lunas'?'badge-success':'badge-danger'}">${k.status}</span></div><div class="flex justify-between items-center" style="margin-top:10px"><span class="font-bold text-accent">Rp ${k.total.toLocaleString('id-ID')}</span>${k.status==='Belum Lunas'?`<button onclick="payKasbon('${k.id}')" class="btn btn-sm btn-primary">Tandai Lunas</button>`:''}</div></div>`).join('');
 }
-async function payKasbon(kasbonId){const item=kasbonList.find(k=>k.id===kasbonId);if(!item||!confirm(`Tandai ${item.customer} Rp ${item.total.toLocaleString('id-ID')} Lunas?`))return;try{const result=await apiPost('payKasbon',{id:kasbonId});if(result.status!=='success')throw new Error(result.message||'Gagal');item.status='Lunas';renderKasbonTable();renderDashboard();}catch(err){alert(err.message);}}
+async function payKasbon(kasbonId){const item=kasbonList.find(k=>k.id===kasbonId);if(!item||!confirm(`Tandai ${item.customer} Rp ${item.total.toLocaleString('id-ID')} Lunas?`))return;try{const result=await apiPost('payKasbon',{id:kasbonId});if(result.status!=='success')throw new Error(result.message||'Gagal');item.status='Lunas';await persistLocalCache();renderKasbonTable();renderDashboard();}catch(err){alert(err.message);}}
 function renderExpenseTable(){
   const tbody=document.getElementById('expenseTableBody');
   if(tbody) tbody.innerHTML=expenses.map(e=>`<tr><td class="text-muted" style="font-size:12px">${e.date}</td><td class="font-bold">${e.category}</td><td>${e.desc}</td><td class="font-bold text-danger">Rp ${e.amount.toLocaleString('id-ID')}</td></tr>`).join('');
@@ -1046,7 +1136,7 @@ function closeExpenseModal(){document.getElementById('expenseModal').classList.a
 async function saveExpense(e){
   e.preventDefault(); const category=document.getElementById('expCategory').value,desc=document.getElementById('expDesc').value,amount=parseFloat(document.getElementById('expAmount').value),date=new Date().toLocaleDateString('id-ID');
   const entry={id:'EXP-'+Date.now(),date,category,desc,amount}; const submitBtn=e.target.querySelector('button[type="submit"]'); if(submitBtn){submitBtn.disabled=true;submitBtn.textContent='Menyimpan...';}
-  try{const result=await apiPost('saveExpense',entry);if(result.status!=='success')throw new Error(result.message||'Gagal');expenses.push(entry);renderExpenseTable();updateFinancialReports();renderDashboard();closeExpenseModal();document.getElementById('expenseForm').reset();}catch(err){alert(err.message);}finally{if(submitBtn){submitBtn.disabled=false;submitBtn.textContent='Simpan';}}
+  try{const result=await apiPost('saveExpense',entry);if(result.status!=='success')throw new Error(result.message||'Gagal');expenses.push(entry);await persistLocalCache();renderExpenseTable();updateFinancialReports();renderDashboard();closeExpenseModal();document.getElementById('expenseForm').reset();}catch(err){alert(err.message);}finally{if(submitBtn){submitBtn.disabled=false;submitBtn.textContent='Simpan';}}
 }
 function setReportFilter(f){reportFilter=f;document.querySelectorAll('.filter-pill').forEach(el=>el.classList.remove('active'));const btn=document.getElementById('filter-'+f);if(btn)btn.classList.add('active');updateFinancialReports();}
 function updateFinancialReports(){
@@ -1236,6 +1326,7 @@ async function addFuelStock(){
   const newStock=(Number(p.stock)||0)+add;
   try{
     p.stock=newStock;
+    await persistLocalCache();
     const result=await saveFuelToSheet(p);
     if(!result || result.status!=='success') throw new Error((result&&result.message)||'Gagal simpan stok ke Sheet');
     document.getElementById('fuelAddStock').value='';
@@ -1253,6 +1344,7 @@ async function setFuelStockManual(){
   if(isNaN(stock)||stock<0){ alert('Nilai tidak valid'); return; }
   try{
     p.stock=stock;
+    await persistLocalCache();
     const result=await saveFuelToSheet(p);
     if(!result || result.status!=='success') throw new Error((result&&result.message)||'Gagal simpan stok ke Sheet');
     renderFuelPage();
@@ -1321,6 +1413,7 @@ async function processFuelSale(){
     }catch(eStock){ console.warn('Sync stok BBM', eStock); }
     salesHistory.push(sale);
     if(kasbonEntry) kasbonList.push(kasbonEntry);
+    await persistLocalCache();
 
     playCoinSound();
     showReceipt(transId, timeStr, total, method, [{name:'Pertalite', qty:liters, price:price}]);

@@ -4,6 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>WARUNG MANG ALI</title>
+  <meta name="theme-color" content="#16a34a">
+  <meta name="description" content="Kasir & Inventaris Warung Mang Ali — offline ready">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Warung Mang Ali">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect fill='%2316a34a' width='100' height='100' rx='20'/%3E%3Ctext y='68' x='50' text-anchor='middle' font-size='55'%3E🛒%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
@@ -408,6 +415,7 @@
   <div id="doaModal" class="modal-bg hidden"><div class="modal"><p dir="rtl" lang="ar" class="doa-ar">اَللَّهُمَّ اكْفِنِيْ بِحَلَالِكَ عَنْ حَرَامِكَ وَأَغْنِنِيْ بِفَضْلِكَ عَمَّنْ سِوَاكَ</p><p class="doa-lat">Allahumma ikfini bihalalika 'an haramika, wa aghnini bifadhlika 'amman siwaka.</p><button onclick="closeDoaModal()" class="btn btn-primary btn-block">Aamiin</button></div></div>
   <div id="receiptModal" class="modal-bg hidden"><div class="modal modal-sm" style="text-align:center"><div class="receipt-ok"><i data-lucide="check" style="width:24px;height:24px"></i></div><h3 style="font-size:16px;font-weight:800">Transaksi Berhasil!</h3><div id="receiptDetails" class="receipt-box"></div><div class="flex gap-2" style="margin-top:4px"><button onclick="printReceipt()" class="btn btn-ghost" style="flex:1"><i data-lucide="printer" style="width:15px;height:15px"></i> Cetak</button><button onclick="closeReceiptModal()" class="btn btn-primary" style="flex:1">Selesai</button></div></div></div>
 
+  <script src="offline-core.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
