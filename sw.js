@@ -1,5 +1,5 @@
 /* Service Worker — Warung Mang Ali (offline shell + background sync hint) */
-const CACHE = 'warung-mangali-v2';
+const CACHE = 'warung-mangali-v3';
 const ASSETS = [
   './',
   './index.html',

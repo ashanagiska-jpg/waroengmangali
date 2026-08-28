@@ -297,6 +297,13 @@ function saveKasbon(payload) {
   if (!payload || !payload.customer) return { status: 'error', message: 'Nama pelanggan wajib' };
   var sh = getSheet_(SHEET.KASBON, HEAD.KASBON);
   var id = payload.id ? String(payload.id) : ('KSB-' + new Date().getTime().toString().slice(-5));
+  // Idempotent: jangan append jika ID sudah ada
+  var values = sh.getDataRange().getValues();
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][0]) === id) {
+      return { status: 'duplicate', id: id, message: 'Kasbon sudah tercatat' };
+    }
+  }
   sh.appendRow([id, String(payload.customer || ''), Number(payload.total) || 0, String(payload.time || ''), String(payload.status || 'Belum Lunas')]);
   return { status: 'success', id: id };
 }
@@ -308,6 +315,9 @@ function payKasbon(payload) {
   var values = sh.getDataRange().getValues();
   for (var i = 1; i < values.length; i++) {
     if (String(values[i][0]) === id) {
+      if (String(values[i][4]) === 'Lunas') {
+        return { status: 'duplicate', id: id, message: 'Kasbon sudah lunas' };
+      }
       sh.getRange(i + 1, 5).setValue('Lunas');
       return { status: 'success' };
     }
@@ -319,6 +329,13 @@ function saveExpense(payload) {
   if (!payload) return { status: 'error', message: 'Data kosong' };
   var sh = getSheet_(SHEET.EXPENSES, HEAD.EXPENSES);
   var id = payload.id ? String(payload.id) : ('EXP-' + new Date().getTime());
+  // Idempotent
+  var values = sh.getDataRange().getValues();
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][0]) === id) {
+      return { status: 'duplicate', id: id, message: 'Pengeluaran sudah tercatat' };
+    }
+  }
   sh.appendRow([id, String(payload.date || ''), String(payload.category || ''), String(payload.desc || ''), Number(payload.amount) || 0]);
   return { status: 'success', id: id };
 }
