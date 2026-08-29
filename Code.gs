@@ -12,12 +12,13 @@
 
 var SPREADSHEET_NAME = 'Database Warung Mang Ali';
 var PHOTO_FOLDER_NAME = 'WarungMangAli_Produk';
-var SHEET = { PRODUCTS: 'Products', SALES: 'Sales', KASBON: 'Kasbon', EXPENSES: 'Expenses' };
+var SHEET = { PRODUCTS: 'Products', SALES: 'Sales', KASBON: 'Kasbon', EXPENSES: 'Expenses', STOCKLOG: 'StockLog' };
 var HEAD = {
   PRODUCTS: ['id', 'name', 'barcode', 'category', 'stock', 'cost', 'price', 'minStock', 'image'],
   SALES: ['id', 'time', 'itemsSummary', 'total', 'costTotal', 'method'],
   KASBON: ['id', 'customer', 'total', 'time', 'status'],
-  EXPENSES: ['id', 'date', 'category', 'desc', 'amount']
+  EXPENSES: ['id', 'date', 'category', 'desc', 'amount'],
+  STOCKLOG: ['id', 'time', 'productId', 'productName', 'type', 'qtyBefore', 'qtyAfter', 'delta', 'note', 'refId']
 };
 
 function doGet(e) {
@@ -55,6 +56,7 @@ function doPost(e) {
       case 'saveExpense': result = saveExpense(payload); break;
       case 'uploadProductImage': result = uploadProductImage(payload); break;
       case 'saveFuel': result = saveFuel(payload); break;
+      case 'saveStockLog': result = saveStockLog(payload); break;
       default: result = { status: 'error', message: 'Action tidak dikenal: ' + action };
     }
     return json_(result);
@@ -90,6 +92,7 @@ function ensureSheets_(ss) {
   ensureSheet_(ss, SHEET.SALES, HEAD.SALES);
   ensureSheet_(ss, SHEET.KASBON, HEAD.KASBON);
   ensureSheet_(ss, SHEET.EXPENSES, HEAD.EXPENSES);
+  ensureSheet_(ss, SHEET.STOCKLOG, HEAD.STOCKLOG);
   var def = ss.getSheetByName('Sheet1');
   if (def && ss.getSheets().length > 1) {
     try { ss.deleteSheet(def); } catch (e) {}
@@ -120,7 +123,8 @@ function getData() {
     products: readProducts_(),
     sales: readSales_(),
     kasbon: readKasbon_(),
-    expenses: readExpenses_()
+    expenses: readExpenses_(),
+    stockLog: readStockLog_()
   };
 }
 
@@ -368,15 +372,18 @@ function saveFuel(payload) {
     var id = 'FUEL-PERTALITE';
     var barcode = 'PERTALITE';
     var name = (payload && payload.name) ? String(payload.name) : 'Pertalite';
-    var stock = payload && payload.stock != null ? Number(payload.stock) : 0;
     var cost = payload && payload.cost != null ? Number(payload.cost) : 0;
     var price = payload && payload.price != null ? Number(payload.price) : 13000;
     var minStock = payload && payload.minStock != null ? Number(payload.minStock) : 10;
     var image = payload && payload.image ? String(payload.image) : '';
+    // stockMode: 'set' = tulis stok dari client | 'leave' = pertahankan stok di Sheet
+    // Default 'set' untuk kompatibilitas, tapi client penjualan BBM tidak boleh memanggil ini.
+    var stockMode = (payload && payload.stockMode) ? String(payload.stockMode) : 'set';
+    var stockFromClient = payload && payload.stock != null ? Number(payload.stock) : 0;
 
-    var rowData = [id, name, barcode, 'BBM', stock, cost, price, minStock, image];
     var values = sh.getDataRange().getValues();
     var foundRow = -1;
+    var existingStock = 0;
 
     for (var i = 1; i < values.length; i++) {
       var rid = String(values[i][0] || '');
@@ -384,9 +391,13 @@ function saveFuel(payload) {
       var rcat = String(values[i][3] || '');
       if (rid === id || rbc === 'PERTALITE' || (rcat === 'BBM' && String(values[i][1] || '').toLowerCase().indexOf('pertalite') >= 0)) {
         foundRow = i;
+        existingStock = Number(values[i][4]) || 0;
         break;
       }
     }
+
+    var stock = (stockMode === 'leave' && foundRow >= 0) ? existingStock : stockFromClient;
+    var rowData = [id, name, barcode, 'BBM', stock, cost, price, minStock, image];
 
     if (foundRow >= 0) {
       sh.getRange(foundRow + 1, 1, 1, HEAD.PRODUCTS.length).setValues([rowData]);
@@ -394,10 +405,64 @@ function saveFuel(payload) {
       sh.appendRow(rowData);
     }
 
-    return { status: 'success', id: id, stock: stock, price: price };
+    return { status: 'success', id: id, stock: stock, price: price, stockMode: stockMode };
   } catch (err) {
     return { status: 'error', message: String(err) };
   }
+}
+
+
+
+function readStockLog_() {
+  var sh = getSheet_(SHEET.STOCKLOG, HEAD.STOCKLOG);
+  var values = sh.getDataRange().getValues();
+  if (values.length < 2) return [];
+  var out = [];
+  // ambil max 300 baris terakhir
+  var start = Math.max(1, values.length - 300);
+  for (var i = start; i < values.length; i++) {
+    var r = values[i];
+    if (!r[0]) continue;
+    out.push({
+      id: String(r[0]),
+      time: String(r[1] || ''),
+      productId: String(r[2] || ''),
+      productName: String(r[3] || ''),
+      type: String(r[4] || ''),
+      qtyBefore: Number(r[5]) || 0,
+      qtyAfter: Number(r[6]) || 0,
+      delta: Number(r[7]) || 0,
+      note: String(r[8] || ''),
+      refId: String(r[9] || '')
+    });
+  }
+  return out;
+}
+
+function saveStockLog(payload) {
+  if (!payload) return { status: 'error', message: 'Data log kosong' };
+  var sh = getSheet_(SHEET.STOCKLOG, HEAD.STOCKLOG);
+  var id = payload.id ? String(payload.id) : ('LOG-' + new Date().getTime());
+  // idempotent by id
+  var values = sh.getDataRange().getValues();
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][0]) === id) {
+      return { status: 'duplicate', id: id };
+    }
+  }
+  sh.appendRow([
+    id,
+    String(payload.time || ''),
+    String(payload.productId || ''),
+    String(payload.productName || ''),
+    String(payload.type || ''),
+    Number(payload.qtyBefore) || 0,
+    Number(payload.qtyAfter) || 0,
+    Number(payload.delta) || 0,
+    String(payload.note || ''),
+    String(payload.refId || '')
+  ]);
+  return { status: 'success', id: id };
 }
 
 function uploadProductImage(payload) {

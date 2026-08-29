@@ -91,8 +91,16 @@
       if (action === 'deleteProduct' && payload.id) {
         return 'delProduct:' + String(payload.id);
       }
-      if (action === 'saveFuel' && payload.id) {
-        return 'fuel:' + String(payload.id) + ':' + String(payload.stock) + ':' + String(payload.price);
+      if (action === 'saveStockLog' && payload.id) {
+        return 'stocklog:' + String(payload.id);
+      }
+      if (action === 'saveFuel') {
+        var sm = payload.stockMode || 'set';
+        if (sm === 'leave') {
+          return 'fuel:leave:' + String(payload.price) + ':' + String(payload.cost);
+        }
+        // set: fingerprint tetap per nilai stok, tapi enqueue akan mengganti pending lama
+        return 'fuel:set:' + String(payload.stock) + ':' + String(payload.price);
       }
       // fallback: hash kasar isi payload
       return action + ':' + JSON.stringify(payload).slice(0, 180);
@@ -161,6 +169,11 @@
       return existing.id;
     }
 
+    // saveFuel stockMode=set: buang antrian saveFuel lama (stok usang) supaya tidak menaikkan stok lagi
+    if (action === 'saveFuel' && (payload.stockMode || 'set') === 'set') {
+      try { await removePendingByAction('saveFuel'); } catch (e) {}
+    }
+
     return openDB().then(function (db) {
       return new Promise(function (resolve, reject) {
         const tx = db.transaction(STORE_QUEUE, 'readwrite');
@@ -206,6 +219,29 @@
         tx.objectStore(STORE_QUEUE).delete(id);
         tx.oncomplete = function () { resolve(); };
         tx.onerror = function () { reject(tx.error); };
+      });
+    });
+  }
+
+  function removePendingByAction(actionName) {
+    return openDB().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        const tx = db.transaction(STORE_QUEUE, 'readwrite');
+        const store = tx.objectStore(STORE_QUEUE);
+        const req = store.openCursor();
+        req.onsuccess = function (e) {
+          const cursor = e.target.result;
+          if (cursor) {
+            const v = cursor.value;
+            if (v.status === 'pending' && v.action === actionName) {
+              cursor.delete();
+            }
+            cursor.continue();
+          } else {
+            resolve();
+          }
+        };
+        req.onerror = function () { reject(req.error); };
       });
     });
   }
@@ -426,6 +462,7 @@
     if (data.sales) await idbSet('sales', data.sales);
     if (data.kasbon) await idbSet('kasbon', data.kasbon);
     if (data.expenses) await idbSet('expenses', data.expenses);
+    if (data.stockLog) await idbSet('stockLog', data.stockLog);
     await idbSet('cachedAt', Date.now());
   }
 
@@ -434,8 +471,9 @@
     const sales = (await idbGet('sales')) || [];
     const kasbon = (await idbGet('kasbon')) || [];
     const expenses = (await idbGet('expenses')) || [];
+    const stockLog = (await idbGet('stockLog')) || [];
     const cachedAt = await idbGet('cachedAt');
-    return { products: products, sales: sales, kasbon: kasbon, expenses: expenses, cachedAt: cachedAt };
+    return { products: products, sales: sales, kasbon: kasbon, expenses: expenses, stockLog: stockLog, cachedAt: cachedAt };
   }
 
   /**

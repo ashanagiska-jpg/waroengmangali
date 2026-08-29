@@ -14,13 +14,23 @@
   <link rel="stylesheet" href="styles.css">
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script>
+    (function(){
+      try{
+        var t=localStorage.getItem('warungTheme');
+        if(t==='dark'||(t!=='light'&&window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches)){
+          document.documentElement.classList.add('dark');
+        }
+      }catch(e){}
+    })();
+  </script>
 </head>
 <body>
   <div id="loadingOverlay"><div class="spinner"></div><p style="font-size:14px;color:var(--muted);font-weight:700">Memuat data...</p></div>
   <div id="embedBanner"><span>Scan kamera tidak bisa di Google Sites.</span><button onclick="openInNewTab()">Buka Tab Baru</button></div>
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="sidebar-brand"><div class="logo"><i data-lucide="store" style="width:22px;height:22px"></i></div><div><h1>WARUNG MANG ALI</h1><p>Kasir &amp; Inventaris</p></div></div>
+      <div class="sidebar-brand"><div class="logo"><i data-lucide="store" style="width:22px;height:22px"></i></div><div><h1>WARUNG MANG ALI</h1><p class="slogan">Segar · Murah · Dekat</p></div></div>
       <nav class="sidebar-nav">
         <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-item active"><span class="icon-wrap"><i data-lucide="layout-dashboard" style="width:18px;height:18px"></i></span>Dashboard</button>
         <button onclick="switchTab('pos')" id="nav-pos" class="nav-item"><span class="icon-wrap"><i data-lucide="shopping-cart" style="width:18px;height:18px"></i></span>Kasir (POS)</button>
@@ -36,12 +46,25 @@
       <header class="topbar">
         <div class="topbar-title"><div class="mobile-logo"><i data-lucide="store" style="width:16px;height:16px"></i></div><span id="pageTitle">Dashboard</span></div>
         <div class="topbar-actions">
+          <button type="button" onclick="toggleTheme()" class="theme-toggle" title="Mode gelap/terang" aria-label="Tema">
+            <span class="icon-moon"><i data-lucide="moon" style="width:16px;height:16px"></i></span>
+            <span class="icon-sun"><i data-lucide="sun" style="width:16px;height:16px"></i></span>
+          </button>
           <button onclick="refreshAllData()" id="refreshBtn" class="btn-icon" title="Refresh"><i data-lucide="refresh-cw" style="width:16px;height:16px"></i></button>
           <button onclick="openScanner(handlePosScan)" class="btn-icon accent" title="Scan"><i data-lucide="scan-line" style="width:16px;height:16px"></i></button>
         </div>
       </header>
       <div class="content">
         <section id="tab-dashboard" class="tab-content space-y-4">
+          <div class="today-strip" id="todayStrip">
+            <div>
+              <div class="ts-label">Hari ini</div>
+              <div class="ts-main" id="stripOmset">Rp 0</div>
+            </div>
+            <span class="ts-chip" id="stripTx">0 transaksi</span>
+            <span class="ts-chip" id="stripProfit">Laba Rp 0</span>
+            <span class="ts-chip" id="stripLow">0 stok menipis</span>
+          </div>
           <div class="dash-grid">
             <div class="stat-tile green clickable" role="button" tabindex="0" onclick="openDashDetail('omsetToday')" onkeydown="if(event.key==='Enter')openDashDetail('omsetToday')"><div class="top"><div><div class="label">Omset Hari Ini</div><div class="value" id="dashOmset">Rp 0</div></div><div class="icon green"><i data-lucide="trending-up" style="width:18px;height:18px"></i></div></div><div class="sub" id="dashTx">0 transaksi</div><span class="stat-hint">Ketuk untuk rincian</span></div>
             <div class="stat-tile amber clickable" role="button" tabindex="0" onclick="openDashDetail('profitToday')" onkeydown="if(event.key==='Enter')openDashDetail('profitToday')"><div class="top"><div><div class="label">Laba Estimasi Hari Ini</div><div class="value" id="dashProfitToday">Rp 0</div></div><div class="icon amber"><i data-lucide="coins" style="width:18px;height:18px"></i></div></div><div class="sub">Omset - HPP - pengeluaran</div><span class="stat-hint">Ketuk untuk rincian</span></div>
@@ -188,6 +211,8 @@
                   </div>
                   <button type="button" class="btn btn-ghost btn-block" onclick="addFuelStock()">+ Tambah Stok Liter</button>
                   <button type="button" class="btn btn-ghost btn-block" onclick="setFuelStockManual()">Set Stok Manual...</button>
+                  <button type="button" class="btn btn-primary btn-block" onclick="openFuelStockVerify()" style="margin-top:4px"><i data-lucide="shield-check" style="width:15px;height:15px"></i> Verifikasi Stok Tangki</button>
+                  <p id="fuelVerifyMeta" class="text-muted" style="font-size:11px;font-weight:600;margin-top:8px;text-align:center"></p>
                 </div>
               </div>
               <div class="card">
@@ -206,10 +231,36 @@
 
         <section id="tab-stok" class="tab-content hidden space-y-4">
           <div class="card">
-            <div class="card-head"><div><h2>Manajemen Stok</h2><p>Inventaris + foto produk</p></div><button onclick="openProductModal()" class="btn btn-primary"><i data-lucide="plus" style="width:15px;height:15px"></i> Tambah Barang</button></div>
+            <div class="card-head"><div><h2>Manajemen Stok</h2><p>Inventaris + foto produk</p></div><div class="flex gap-2 flex-wrap"><button type="button" onclick="openStockVerifyPicker()" class="btn btn-ghost"><i data-lucide="shield-check" style="width:15px;height:15px"></i> Verifikasi Stok</button><button onclick="openProductModal()" class="btn btn-primary"><i data-lucide="plus" style="width:15px;height:15px"></i> Tambah Barang</button></div></div>
             <div style="padding:12px 16px;border-bottom:1px solid var(--border)"><input type="text" id="stockSearch" onkeyup="renderStockTable()" placeholder="Cari..." class="input" style="max-width:300px"></div>
             <div class="table-scroll"><table><thead><tr><th>Foto</th><th>Kode</th><th>Nama</th><th>Kategori</th><th>Modal</th><th>Jual</th><th>Stok</th><th style="text-align:center">Aksi</th></tr></thead><tbody id="stockTableBody"></tbody></table></div>
             <div id="stockCardsMobile" class="mobile-list"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div><h2>Riwayat Stok</h2><p>Log verifikasi, restok, penjualan &amp; BBM</p></div>
+              <button type="button" class="btn btn-sm btn-ghost" onclick="renderStockLogTable()"><i data-lucide="refresh-cw" style="width:14px;height:14px"></i> Refresh</button>
+            </div>
+            <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+              <select id="stockLogFilter" class="select" style="max-width:160px" onchange="renderStockLogTable()">
+                <option value="all">Semua jenis</option>
+                <option value="verify">Verifikasi</option>
+                <option value="restock">Tambah stok</option>
+                <option value="sale">Penjualan</option>
+                <option value="fuel_sale">Jual BBM</option>
+                <option value="set">Set stok</option>
+                <option value="adjust">Penyesuaian</option>
+              </select>
+              <input type="text" id="stockLogSearch" class="input" style="flex:1;min-width:140px;max-width:280px" placeholder="Cari nama / catatan..." oninput="renderStockLogTable()">
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead><tr><th>Waktu</th><th>Jenis</th><th>Barang</th><th>Sebelum</th><th>Sesudah</th><th>Selisih</th><th>Catatan</th></tr></thead>
+                <tbody id="stockLogBody"><tr><td colspan="7" class="empty">Belum ada riwayat stok</td></tr></tbody>
+              </table>
+            </div>
+            <div id="stockLogMobile" class="mobile-list"></div>
           </div>
         </section>
 
@@ -269,8 +320,16 @@
       <div class="total-line"><span class="lbl">Total Belanja</span><span class="val" id="cartTotalText">Rp 0</span></div>
       <div><label class="label">Metode Pembayaran</label><select id="posPaymentMethod" onchange="toggleKasbonInput()" class="select"><option value="Tunai">Tunai</option><option value="QRIS/Transfer">QRIS / Transfer</option><option value="Kasbon">Kasbon (Hutang)</option></select></div>
       <div id="kasbonFormGroup" class="hidden"><label class="label">Nama Pelanggan</label><input type="text" id="kasbonCustomerName" placeholder="Pak RT" class="input"></div>
-      <div id="cashFormGroup"><label class="label">Uang Bayar (Rp)</label><input type="number" id="cashAmountInput" oninput="calculateChange()" placeholder="0" class="cash-input"><div class="change-row"><span class="text-muted" style="font-size:12px;font-weight:700">Kembalian</span><span id="changeAmountText" class="val">Rp 0</span></div></div>
-      <button id="processPaymentBtn" onclick="processTransaction()" class="btn btn-primary btn-block" style="padding:13px"><i data-lucide="check-circle" style="width:17px;height:17px"></i><span id="processPaymentBtnText">Simpan Transaksi</span></button>
+      <div id="cashFormGroup"><label class="label">Uang Bayar (Rp)</label><input type="number" id="cashAmountInput" oninput="calculateChange()" placeholder="0" class="cash-input">
+        <div class="cash-quick">
+          <button type="button" class="cash-chip" onclick="setCashExact()">Uang pas</button>
+          <button type="button" class="cash-chip" onclick="setCashAmount(20000)">20rb</button>
+          <button type="button" class="cash-chip" onclick="setCashAmount(50000)">50rb</button>
+          <button type="button" class="cash-chip" onclick="setCashAmount(100000)">100rb</button>
+          <button type="button" class="cash-chip" onclick="setCashAmount(200000)">200rb</button>
+        </div>
+        <div class="change-row" style="margin-top:10px"><span class="text-muted" style="font-size:12px;font-weight:700">Kembalian</span><span id="changeAmountText" class="val">Rp 0</span></div></div>
+      <button id="processPaymentBtn" onclick="processTransaction()" class="btn btn-pay"><i data-lucide="check-circle" style="width:18px;height:18px"></i><span id="processPaymentBtnText">Bayar</span></button>
     </div>
   </div>
   <div class="pos-mobile-bar" id="posMobileBar">
@@ -413,7 +472,51 @@
   </div>
 
   <div id="doaModal" class="modal-bg hidden"><div class="modal"><p dir="rtl" lang="ar" class="doa-ar">اَللَّهُمَّ اكْفِنِيْ بِحَلَالِكَ عَنْ حَرَامِكَ وَأَغْنِنِيْ بِفَضْلِكَ عَمَّنْ سِوَاكَ</p><p class="doa-lat">Allahumma ikfini bihalalika 'an haramika, wa aghnini bifadhlika 'amman siwaka.</p><button onclick="closeDoaModal()" class="btn btn-primary btn-block">Aamiin</button></div></div>
-  <div id="receiptModal" class="modal-bg hidden"><div class="modal modal-sm" style="text-align:center"><div class="receipt-ok"><i data-lucide="check" style="width:24px;height:24px"></i></div><h3 style="font-size:16px;font-weight:800">Transaksi Berhasil!</h3><div id="receiptDetails" class="receipt-box"></div><div class="flex gap-2" style="margin-top:4px"><button onclick="printReceipt()" class="btn btn-ghost" style="flex:1"><i data-lucide="printer" style="width:15px;height:15px"></i> Cetak</button><button onclick="closeReceiptModal()" class="btn btn-primary" style="flex:1">Selesai</button></div></div></div>
+  <div id="receiptModal" class="modal-bg hidden"><div class="modal modal-sm" style="text-align:center"><div class="receipt-ok"><i data-lucide="check" style="width:28px;height:28px"></i></div><h3 style="font-size:16px;font-weight:800">Transaksi Berhasil!</h3><p style="font-size:12px;color:var(--muted);font-weight:600;margin-top:4px">Terima kasih telah berbelanja</p><div id="receiptDetails" class="receipt-box"></div><div class="receipt-actions"><button type="button" onclick="shareReceiptWhatsApp()" class="btn btn-block btn-wa"><i data-lucide="message-circle" style="width:16px;height:16px"></i> Bagikan WhatsApp</button><div class="row-btns"><button onclick="printReceipt()" class="btn btn-ghost" style="flex:1"><i data-lucide="printer" style="width:15px;height:15px"></i> Cetak</button><button onclick="closeReceiptModal()" class="btn btn-primary" style="flex:1">Selesai</button></div></div></div></div>
+
+
+  <!-- Modal Verifikasi Stok -->
+  <div id="stockVerifyModal" class="modal-bg hidden">
+    <div class="modal" style="max-width:420px">
+      <div class="card-head" style="border-radius:var(--radius) var(--radius) 0 0">
+        <div><h2 id="stockVerifyTitle">Verifikasi Stok</h2><p id="stockVerifySub">Samakan stok sistem dengan stok fisik</p></div>
+        <button type="button" class="btn btn-sm btn-ghost" onclick="closeStockVerifyModal()"><i data-lucide="x" style="width:16px;height:16px"></i></button>
+      </div>
+      <div class="card-pad space-y-3">
+        <div class="verify-box">
+          <div class="verify-row"><span>Barang</span><strong id="svName">—</strong></div>
+          <div class="verify-row"><span>Stok sistem saat ini</span><strong id="svCurrent" class="text-accent">0</strong></div>
+        </div>
+        <div>
+          <label class="label" id="svInputLabel">Stok fisik (hasil hitung)</label>
+          <input type="number" id="svPhysical" class="cash-input" min="0" step="0.001" placeholder="0" oninput="previewStockVerify()">
+        </div>
+        <div class="verify-preview" id="svPreview">
+          <div class="verify-row"><span>Selisih</span><strong id="svDelta">0</strong></div>
+          <div class="verify-row"><span>Stok setelah simpan</span><strong id="svAfter">0</strong></div>
+        </div>
+        <p class="text-muted" style="font-size:12px;font-weight:600;line-height:1.45">Hitung stok di tempat (tangki / rak), masukkan angka fisik, lalu konfirmasi. Sistem akan menyesuaikan hanya setelah Anda setuju.</p>
+        <div class="flex gap-2">
+          <button type="button" class="btn btn-ghost" style="flex:1" onclick="closeStockVerifyModal()">Batal</button>
+          <button type="button" class="btn btn-primary" style="flex:1" id="svConfirmBtn" onclick="confirmStockVerify()"><i data-lucide="check" style="width:15px;height:15px"></i> Konfirmasi &amp; Simpan</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal pilih produk verifikasi -->
+  <div id="stockVerifyPickerModal" class="modal-bg hidden">
+    <div class="modal" style="max-width:420px">
+      <div class="card-head">
+        <div><h2>Pilih Barang</h2><p>Verifikasi stok fisik</p></div>
+        <button type="button" class="btn btn-sm btn-ghost" onclick="closeStockVerifyPicker()"><i data-lucide="x" style="width:16px;height:16px"></i></button>
+      </div>
+      <div class="card-pad">
+        <input type="text" id="svPickerSearch" class="input" placeholder="Cari nama / barcode..." oninput="renderStockVerifyPicker()" style="margin-bottom:12px">
+        <div id="svPickerList" class="alert-list" style="max-height:50vh;overflow:auto"></div>
+      </div>
+    </div>
+  </div>
 
   <script src="offline-core.js"></script>
   <script src="app.js"></script>
