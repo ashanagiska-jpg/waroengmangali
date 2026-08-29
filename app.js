@@ -70,33 +70,54 @@ window.onload=async function(){
       });
     }catch(e){ console.warn('[SW] register gagal', e); }
   }
-  await loadAllData();
+  // loadAllData sudah cache-first + render internal bila ada cache
+  await loadAllData(true);
   renderCurrentPage();
   switchTab('dashboard');
-  // coba flush antrian jika online
+  // sync antrian di background — jangan blok UI
   if(window.OfflineCore && OfflineCore.isOnline()){
-    OfflineCore.processSyncQueue(false);
+    setTimeout(function(){ OfflineCore.processSyncQueue(false); }, 800);
   }
 };
 
-async function apiGet(action){
-  const res=await fetch(WEB_APP_URL+'?action='+encodeURIComponent(action));
-  if(!res.ok) throw new Error('HTTP '+res.status);
-  return res.json();
+async function apiGet(action, timeoutMs){
+  timeoutMs = timeoutMs == null ? 15000 : timeoutMs;
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(function(){ try{ ctrl.abort(); }catch(e){} }, timeoutMs) : null;
+  try{
+    const res = await fetch(WEB_APP_URL+'?action='+encodeURIComponent(action), ctrl ? { signal: ctrl.signal } : undefined);
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    return await res.json();
+  }catch(err){
+    if(err && err.name === 'AbortError') throw new Error('Timeout memuat data ('+Math.round(timeoutMs/1000)+' dtk). Coba refresh.');
+    throw err;
+  }finally{
+    if(timer) clearTimeout(timer);
+  }
 }
 /** Raw post — selalu ke jaringan (dipakai OfflineCore & sync) */
 async function apiPostRaw(action, payload){
   // text/plain menghindari preflight CORS yang sering gagal di Apps Script
-  const res=await fetch(WEB_APP_URL,{
-    method:'POST',
-    headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body:JSON.stringify({action:action,payload:payload}),
-    redirect:'follow'
-  });
-  if(!res.ok) throw new Error('HTTP '+res.status);
-  const text=await res.text();
-  try{ return JSON.parse(text); }
-  catch(e){ throw new Error('Respons bukan JSON. Deploy Web App ulang. Cuplikan: '+text.slice(0,120)); }
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(function(){ try{ ctrl.abort(); }catch(e){} }, 20000) : null;
+  try{
+    const res=await fetch(WEB_APP_URL,{
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:action,payload:payload}),
+      redirect:'follow',
+      signal: ctrl ? ctrl.signal : undefined
+    });
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const text=await res.text();
+    try{ return JSON.parse(text); }
+    catch(e){ throw new Error('Respons bukan JSON. Deploy Web App ulang. Cuplikan: '+text.slice(0,120)); }
+  }catch(err){
+    if(err && err.name === 'AbortError') throw new Error('Timeout kirim data ke Sheet');
+    throw err;
+  }finally{
+    if(timer) clearTimeout(timer);
+  }
 }
 /** Offline-aware post: online → server; offline → antrian IndexedDB */
 async function apiPost(action, payload){
@@ -109,15 +130,38 @@ async function apiPost(action, payload){
 async function loadAllData(showOverlay=true){
   const overlay=document.getElementById('loadingOverlay');
   if(showOverlay) overlay.classList.remove('hidden');
+
+  // 1) CACHE FIRST — UI segera siap (kasir tidak menunggu Sheet)
+  let hasCache = false;
+  if(window.OfflineCore){
+    try{
+      const cache = await OfflineCore.loadCache();
+      if(cache && (cache.products||[]).length){
+        products = (cache.products||[]).map(normalizeProduct);
+        salesHistory = cache.sales || [];
+        kasbonList = cache.kasbon || [];
+        expenses = cache.expenses || [];
+        stockLogList = cache.stockLog || [];
+        hasCache = true;
+        try{ await ensureFuelProduct(false); }catch(e){}
+        if(showOverlay) overlay.classList.add('hidden');
+        // render cepat tanpa menunggu jaringan
+        try{ renderCurrentPage(); }catch(e){}
+      }
+    }catch(e){ console.warn('cache boot', e); }
+  }
+
+  // 2) BACKGROUND / FOREGROUND sync ke server
   try{
-    const data=await apiGet('getData');
-    products=(data.products||[]).map(normalizeProduct);
+    const data = await apiGet('getData', hasCache ? 20000 : 15000);
+    products = (data.products||[]).map(normalizeProduct);
     await ensureFuelProduct(false);
-    salesHistory=data.sales||[];
-    kasbonList=data.kasbon||[];
-    expenses=data.expenses||[];
-    stockLogList=data.stockLog||[];
-    // cache lokal untuk mode offline
+    // merge sales: jangan buang history lokal yang lebih baru dari limit server
+    const serverSales = data.sales || [];
+    salesHistory = mergeById(salesHistory, serverSales, 250);
+    kasbonList = data.kasbon || [];
+    expenses = mergeById(expenses, data.expenses||[], 150);
+    stockLogList = mergeById(stockLogList, data.stockLog||[], 200);
     if(window.OfflineCore){
       try{
         await OfflineCore.cacheAllData({
@@ -130,31 +174,45 @@ async function loadAllData(showOverlay=true){
       }catch(e){ console.warn('cache write', e); }
     }
   }catch(err){
-    console.warn('Load online gagal, coba cache lokal', err);
-    // Fallback IndexedDB
-    if(window.OfflineCore){
-      try{
-        const cache=await OfflineCore.loadCache();
-        products=(cache.products||[]).map(normalizeProduct);
-        salesHistory=cache.sales||[];
-        kasbonList=cache.kasbon||[];
-        expenses=cache.expenses||[];
-        stockLogList=cache.stockLog||[];
-        if(products.length===0){
-          alert('Gagal memuat data dari Google Sheet dan tidak ada cache lokal.\n\n'+err.message+'\n\nButuh internet minimal sekali untuk sinkron awal.\nCek WEB_APP_URL & deploy Apps Script.');
-        }else{
-          if(typeof showScanToast==='function'){
-            showScanToast('Mode offline — memakai data tersimpan di perangkat');
+    console.warn('Load online gagal', err);
+    if(!hasCache){
+      if(window.OfflineCore){
+        try{
+          const cache=await OfflineCore.loadCache();
+          products=(cache.products||[]).map(normalizeProduct);
+          salesHistory=cache.sales||[];
+          kasbonList=cache.kasbon||[];
+          expenses=cache.expenses||[];
+          stockLogList=cache.stockLog||[];
+          if(products.length===0){
+            alert('Gagal memuat data dari Google Sheet dan tidak ada cache lokal.\n\n'+err.message+'\n\nButuh internet minimal sekali untuk sinkron awal.\nCek WEB_APP_URL & deploy Apps Script.');
+          }else{
+            if(typeof showScanToast==='function') showScanToast('Mode offline — data lokal');
+            if(OfflineCore.refreshPendingCount) OfflineCore.refreshPendingCount();
           }
-          if(OfflineCore.refreshPendingCount) OfflineCore.refreshPendingCount();
+        }catch(e2){
+          alert('Gagal memuat data.\n\n'+err.message);
         }
-      }catch(e2){
-        alert('Gagal memuat data.\n\n'+err.message);
+      }else{
+        alert('Gagal memuat data dari Google Sheet.\n\n'+err.message+'\n\nCek WEB_APP_URL & deploy Apps Script.');
       }
     }else{
-      alert('Gagal memuat data dari Google Sheet.\n\n'+err.message+'\n\nCek WEB_APP_URL & deploy Apps Script.');
+      if(typeof showScanToast==='function') showScanToast('Sheet lambat/offline — pakai data lokal');
     }
-  }finally{ if(showOverlay) overlay.classList.add('hidden'); }
+  }finally{
+    if(showOverlay) overlay.classList.add('hidden');
+  }
+}
+
+/** Gabungkan array objek by id; prioritaskan entri lokal jika bentrok; potong maxN */
+function mergeById(localArr, serverArr, maxN){
+  const map = {};
+  (serverArr||[]).forEach(function(x){ if(x && x.id) map[String(x.id)] = x; });
+  (localArr||[]).forEach(function(x){ if(x && x.id) map[String(x.id)] = x; });
+  const out = Object.keys(map).map(function(k){ return map[k]; });
+  // urut kasar by id time suffix / biarkan
+  if(maxN && out.length > maxN) return out.slice(-maxN);
+  return out;
 }
 
 /** Simpan ulang cache setelah mutasi lokal (stok, penjualan, dll) */
